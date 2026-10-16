@@ -20,6 +20,9 @@ The Raigon Art Backend is an enterprise-grade REST API built using **TypeScript*
 * **Authentication:** Stateless JWT (`Bearer`) with role-based access (`admin`, `staff`) & Refresh Token rotation
 * **Messaging:** WhatsApp Cloud API for automated customer order confirmations and pickup status alerts
 
+> 📖 **Full Endpoint Documentation & Examples:** See [API_DOCUMENTATION.md](file:///Users/jijin/Projects/raigon-api/API_DOCUMENTATION.md) for full request/response schemas, queries, and headers for all 27+ endpoints.
+> 📮 **Postman / Thunder Client:** Import [raigon_art_api.postman_collection.json](file:///Users/jijin/Projects/raigon-api/raigon_art_api.postman_collection.json) to start testing immediately.
+
 ---
 
 ## 2. Architecture Diagram

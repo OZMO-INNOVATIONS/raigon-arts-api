@@ -1,0 +1,259 @@
+{
+  "info": {
+    "name": "Raigon Art REST API v2.0.0",
+    "_postman_id": "raigon-art-api-v2",
+    "description": "Comprehensive Postman collection for all Raigon Art REST API endpoints (Supabase Edition)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5001/api/v1",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Authentication",
+      "item": [
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"admin@gmail.com\",\n  \"password\": \"securePassword123\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+          }
+        },
+        {
+          "name": "Forgot Password (OTP)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"8137922114\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/forgot-password", "host": ["{{baseUrl}}"], "path": ["auth", "forgot-password"] }
+          }
+        },
+        {
+          "name": "Verify OTP",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"8137922114\",\n  \"otp\": \"1234\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/verify-otp", "host": ["{{baseUrl}}"], "path": ["auth", "verify-otp"] }
+          }
+        },
+        {
+          "name": "Get Profile (/me)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/auth/me", "host": ["{{baseUrl}}"], "path": ["auth", "me"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Customers & Orders",
+      "item": [
+        {
+          "name": "Get All Customers",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/customers?page=1&limit=10&status=pending",
+              "host": ["{{baseUrl}}"],
+              "path": ["customers"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "10" },
+                { "key": "status", "value": "pending" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Next Order ID",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/customers/next-id", "host": ["{{baseUrl}}"], "path": ["customers", "next-id"] }
+          }
+        },
+        {
+          "name": "Get Customer by ID",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/customers/RA-1001", "host": ["{{baseUrl}}"], "path": ["customers", "RA-1001"] }
+          }
+        },
+        {
+          "name": "Create Customer (JSON)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Ramesh Menon\",\n  \"city\": \"Kochi\",\n  \"phone\": \"9876543299\",\n  \"address\": \"Marine Drive, Kochi\",\n  \"pincode\": \"682011\",\n  \"total\": 4500,\n  \"advance\": 2000,\n  \"status\": \"pending\",\n  \"frames\": [\n    {\n      \"size\": \"12 × 18 inch\",\n      \"frameType\": \"Teak Wood Moulding\",\n      \"qty\": 1,\n      \"notes\": \"White border matting 1.5 inch\"\n    }\n  ]\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/customers", "host": ["{{baseUrl}}"], "path": ["customers"] }
+          }
+        },
+        {
+          "name": "Update Status",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"status\": \"completed\"\n}" },
+            "url": { "raw": "{{baseUrl}}/customers/RA-1001/status", "host": ["{{baseUrl}}"], "path": ["customers", "RA-1001", "status"] }
+          }
+        },
+        {
+          "name": "Update Payment",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"advance\": 4500,\n  \"paymentStatus\": \"Paid\"\n}" },
+            "url": { "raw": "{{baseUrl}}/customers/RA-1001/payment", "host": ["{{baseUrl}}"], "path": ["customers", "RA-1001", "payment"] }
+          }
+        },
+        {
+          "name": "Download Customer Invoice PDF",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/customers/RA-1001/invoice", "host": ["{{baseUrl}}"], "path": ["customers", "RA-1001", "invoice"] }
+          }
+        },
+        {
+          "name": "Download Photos ZIP",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/customers/RA-1001/photos/download-zip", "host": ["{{baseUrl}}"], "path": ["customers", "RA-1001", "photos", "download-zip"] }
+          }
+        },
+        {
+          "name": "Export All Customers to CSV",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/customers/export/csv", "host": ["{{baseUrl}}"], "path": ["customers", "export", "csv"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Frame Sizes Catalog",
+      "item": [
+        {
+          "name": "List Frame Sizes",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/frame-sizes", "host": ["{{baseUrl}}"], "path": ["frame-sizes"] }
+          }
+        },
+        {
+          "name": "Create Frame Size",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"FS-20\",\n  \"name\": \"24 × 36 inch Poster\",\n  \"width\": 24,\n  \"height\": 36,\n  \"unit\": \"Inch\",\n  \"category\": \"Poster\",\n  \"active\": true\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/frame-sizes", "host": ["{{baseUrl}}"], "path": ["frame-sizes"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Dashboard & Reports",
+      "item": [
+        {
+          "name": "Dashboard Stats",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/dashboard/stats", "host": ["{{baseUrl}}"], "path": ["dashboard", "stats"] }
+          }
+        },
+        {
+          "name": "Reports Summary",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/reports/summary?period=month1",
+              "host": ["{{baseUrl}}"],
+              "path": ["reports", "summary"],
+              "query": [{ "key": "period", "value": "month1" }]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. WhatsApp Notifications",
+      "item": [
+        {
+          "name": "Send Order Confirmation",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"RA-1001\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/whatsapp/send-order-confirmation", "host": ["{{baseUrl}}"], "path": ["whatsapp", "send-order-confirmation"] }
+          }
+        },
+        {
+          "name": "Send Status Update",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"RA-1001\",\n  \"status\": \"completed\",\n  \"customNote\": \"Your frames are ready for pickup!\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/whatsapp/send-status-update", "host": ["{{baseUrl}}"], "path": ["whatsapp", "send-status-update"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Workshop Settings",
+      "item": [
+        {
+          "name": "Get Profile",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/settings/profile", "host": ["{{baseUrl}}"], "path": ["settings", "profile"] }
+          }
+        },
+        {
+          "name": "Update Profile",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tagline\": \"Premium Photo Frames & Canvas Prints\",\n  \"businessPhone\": \"8137922114\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/settings/profile", "host": ["{{baseUrl}}"], "path": ["settings", "profile"] }
+          }
+        }
+      ]
+    }
+  ]
+}
