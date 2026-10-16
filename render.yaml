@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: raigon-arts-api
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm install && npm run build
+    startCommand: node dist/server.js
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: STORAGE_MODE
+        value: supabase
+      - key: SUPABASE_STORAGE_BUCKET
+        value: raigon-art-storage
+      - key: DATA_RETENTION_DAYS
+        value: "45"
+      - key: AUTO_CLEANUP_ENABLED
+        value: "true"
+      - key: RETENTION_TARGET
+        value: all

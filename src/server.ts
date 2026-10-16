@@ -13,7 +13,7 @@ async function bootstrap() {
   // Attempt DB connection test
   await testDbConnection();
 
-  const server = app.listen(config.port, () => {
+  const server = app.listen(config.port, '0.0.0.0', () => {
     logger.info(`=======================================================`);
     logger.info(`  RAIGON ART REST API v2.0.0 (Production Edition)`);
     logger.info(`  Server running on http://localhost:${config.port}`);
