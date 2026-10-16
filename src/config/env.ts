@@ -10,8 +10,9 @@ export const config = {
 
   supabase: {
     url: process.env.SUPABASE_URL || 'https://placeholder.supabase.co',
-    anonKey: process.env.SUPABASE_ANON_KEY || 'placeholder-anon-key',
-    serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || 'placeholder-service-role-key',
+    anonKey: process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_PUBLISHABLE_KEY || 'placeholder-anon-key',
+    serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || 'placeholder-service-role-key',
+    jwksUrl: process.env.SUPABASE_JWKS_URL || '',
     storageBucket: process.env.SUPABASE_STORAGE_BUCKET || 'raigon-art-storage',
   },
 
