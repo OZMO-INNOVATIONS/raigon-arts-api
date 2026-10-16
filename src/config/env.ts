@@ -38,4 +38,10 @@ export const config = {
     phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || '',
     accessToken: process.env.WHATSAPP_ACCESS_TOKEN || '',
   },
+
+  retention: {
+    defaultDays: parseInt(process.env.DATA_RETENTION_DAYS || '45', 10),
+    autoCleanupEnabled: process.env.AUTO_CLEANUP_ENABLED !== 'false',
+    target: (process.env.RETENTION_TARGET || 'all') as 'all' | 'photos_only',
+  },
 };

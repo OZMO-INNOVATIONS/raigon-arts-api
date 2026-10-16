@@ -331,6 +331,35 @@ async function runTests() {
     return res.status === 200 && json.success === true;
   });
 
+  // 28. Data Retention: Get Global Policy
+  await assertReq('28. GET /api/v1/settings/retention', async () => {
+    const res = await fetch(`${baseUrl}/api/v1/settings/retention`);
+    const json: any = await res.json();
+    return res.status === 200 && json.data?.retentionDays === 45 && json.data?.autoCleanupEnabled === true;
+  });
+
+  // 29. Data Retention: Update Global Policy (e.g. change to 60 days globally)
+  await assertReq('29. PUT /api/v1/settings/retention', async () => {
+    const res = await fetch(`${baseUrl}/api/v1/settings/retention`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ days: 45, enabled: true, target: 'all' }),
+    });
+    const json: any = await res.json();
+    return res.status === 200 && json.data?.retentionDays === 45;
+  });
+
+  // 30. Data Retention: Trigger Manual Cleanup
+  await assertReq('30. POST /api/v1/settings/cleanup/trigger', async () => {
+    const res = await fetch(`${baseUrl}/api/v1/settings/cleanup/trigger`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ days: 45 }),
+    });
+    const json: any = await res.json();
+    return res.status === 200 && json.data?.success === true;
+  });
+
   server.close();
 
   console.log('\n=======================================================');

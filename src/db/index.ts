@@ -47,6 +47,9 @@ const store = {
       { day: 'Monday - Saturday', hours: '9:30 AM – 8:00 PM' },
       { day: 'Sunday', hours: 'Closed' },
     ],
+    data_retention_days: 45,
+    auto_cleanup_enabled: true,
+    retention_target: 'all',
   } as WorkshopSettings,
   frameSizes: [
     { code: 'FS-01', name: '4 × 6 inch', width: 4.0, height: 6.0, unit: 'Inch', category: 'Standard', orders_count: 14, is_active: true, sort_order: 1 },
@@ -389,6 +392,9 @@ export const db = {
               workshop_address = COALESCE($5, workshop_address),
               gstin = COALESCE($6, gstin),
               business_hours = COALESCE($7, business_hours),
+              data_retention_days = COALESCE($8, data_retention_days),
+              auto_cleanup_enabled = COALESCE($9, auto_cleanup_enabled),
+              retention_target = COALESCE($10, retention_target),
               updated_at = NOW()
             WHERE id = 'default' RETURNING *`,
             [
@@ -399,6 +405,9 @@ export const db = {
               updates.workshop_address,
               updates.gstin,
               updates.business_hours ? JSON.stringify(updates.business_hours) : null,
+              updates.data_retention_days,
+              updates.auto_cleanup_enabled,
+              updates.retention_target,
             ]
           );
           if (res.rows[0]) return res.rows[0];

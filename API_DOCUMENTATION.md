@@ -812,6 +812,92 @@ Dispatches a notification to the customer when the order is ready for collection
 
 ---
 
+### 8.3 Get Global Data Retention Policy & Status
+Fetches the current data retention period (default 45 days), status, cutoff date, and count of records eligible for purging.
+
+* **Method:** `GET`
+* **URL:** `/api/v1/settings/retention`
+* **Response (200 OK):**
+```json
+{
+  "success": true,
+  "data": {
+    "retentionDays": 45,
+    "autoCleanupEnabled": true,
+    "retentionTarget": "all",
+    "cutoffDate": "2026-09-01T17:45:00.000Z",
+    "eligibleCustomersCount": 4,
+    "eligiblePhotosCount": 8
+  }
+}
+```
+
+---
+
+### 8.4 Update Global Data Retention Policy
+Allows updating the retention days globally (e.g. change from 45 to 30 or 60 days). Takes effect across the whole application immediately.
+
+* **Method:** `PUT`
+* **URL:** `/api/v1/settings/retention`
+* **Request Body (`application/json`):**
+```json
+{
+  "days": 45,
+  "enabled": true,
+  "target": "all"
+}
+```
+*Field Options:*
+- `days` *(number)*: Number of retention days before auto-purge (e.g. 45, 60, 90).
+- `enabled` *(boolean)*: `true` to run automatic background purge every 24 hours.
+- `target` *(string)*: `'all'` (deletes order records + photos) or `'photos_only'` (purges storage images but keeps order invoice ledger).
+* **Response (200 OK):**
+```json
+{
+  "success": true,
+  "message": "Global retention policy updated. Data older than 45 days will be automatically purged.",
+  "data": {
+    "retentionDays": 45,
+    "autoCleanupEnabled": true,
+    "retentionTarget": "all",
+    "cutoffDate": "2026-09-01T17:45:00.000Z",
+    "eligibleCustomersCount": 4,
+    "eligiblePhotosCount": 8
+  }
+}
+```
+
+---
+
+### 8.5 Trigger Manual Data Cleanup
+Executes immediate purging of expired records and their storage photos without waiting for the daily background scheduler.
+
+* **Method:** `POST`
+* **URL:** `/api/v1/settings/cleanup/trigger`
+* **Request Body (`application/json`, optional):**
+```json
+{
+  "days": 45
+}
+```
+* **Response (200 OK):**
+```json
+{
+  "success": true,
+  "message": "Cleanup completed. Purged 4 customers and 8 photos older than 45 days.",
+  "data": {
+    "success": true,
+    "purgedCustomers": 4,
+    "purgedPhotos": 8,
+    "retentionDays": 45,
+    "cutoffDate": "2026-09-01T17:45:00.000Z",
+    "executedAt": "2026-10-16T17:46:00.000Z"
+  }
+}
+```
+
+---
+
 ## 10. System Health Check
 
 ### 10.1 Health Status

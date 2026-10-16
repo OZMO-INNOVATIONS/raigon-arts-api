@@ -11,6 +11,9 @@ export class SettingsService {
       workshopAddress: s.workshop_address,
       gstin: s.gstin,
       businessHours: s.business_hours || [],
+      dataRetentionDays: s.data_retention_days !== undefined ? Number(s.data_retention_days) : 45,
+      autoCleanupEnabled: s.auto_cleanup_enabled ?? true,
+      retentionTarget: s.retention_target || 'all',
     };
   }
 
@@ -28,6 +31,9 @@ export class SettingsService {
       ...(payload.workshopAddress !== undefined && { workshop_address: payload.workshopAddress }),
       ...(payload.gstin !== undefined && { gstin: payload.gstin }),
       ...(payload.businessHours !== undefined && { business_hours: payload.businessHours }),
+      ...(payload.dataRetentionDays !== undefined && { data_retention_days: Number(payload.dataRetentionDays) }),
+      ...(payload.autoCleanupEnabled !== undefined && { auto_cleanup_enabled: Boolean(payload.autoCleanupEnabled) }),
+      ...(payload.retentionTarget !== undefined && { retention_target: payload.retentionTarget }),
     };
 
     const s = await db.settings.updateProfile(updates);

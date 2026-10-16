@@ -30,6 +30,9 @@ CREATE TABLE IF NOT EXISTS workshop_settings (
     workshop_address TEXT NOT NULL DEFAULT 'Main Workshop, MG Road, Trivandrum',
     gstin VARCHAR(50) DEFAULT '',
     business_hours JSONB DEFAULT '[{"day": "Monday - Saturday", "hours": "9:30 AM – 8:00 PM"}, {"day": "Sunday", "hours": "Closed"}]'::jsonb,
+    data_retention_days INTEGER NOT NULL DEFAULT 45,
+    auto_cleanup_enabled BOOLEAN NOT NULL DEFAULT true,
+    retention_target VARCHAR(30) NOT NULL DEFAULT 'all',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );

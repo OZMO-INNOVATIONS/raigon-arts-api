@@ -19,9 +19,14 @@ async function bootstrap() {
     logger.info(`  Server running on http://localhost:${config.port}`);
     logger.info(`  Environment: ${config.nodeEnv}`);
     logger.info(`  Storage Mode: ${config.storage.mode}`);
+    logger.info(`  Data Retention: ${config.retention.defaultDays} days (Auto-cleanup: ${config.retention.autoCleanupEnabled})`);
     logger.info(`  Ready to replace Firebase & SharedPreferences`);
     logger.info(`=======================================================`);
   });
+
+  // Start automated 45-day retention cleanup background scheduler
+  const { CleanupService } = await import('./services/cleanup.service.js');
+  CleanupService.startScheduledCleanup();
 
   // Graceful shutdown
   const shutdown = (signal: string) => {

@@ -37,6 +37,9 @@ export interface WorkshopSettings {
   workshop_address: string;
   gstin: string;
   business_hours: BusinessHour[];
+  data_retention_days?: number;
+  auto_cleanup_enabled?: boolean;
+  retention_target?: 'all' | 'photos_only';
   created_at?: string;
   updated_at?: string;
 }
