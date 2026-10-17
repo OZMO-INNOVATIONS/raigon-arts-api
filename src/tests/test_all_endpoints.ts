@@ -304,6 +304,13 @@ async function runTests() {
     return res.status === 200 && json.status === 'sent';
   });
 
+  // 24b. WhatsApp: Get Status
+  await assertReq('24b. GET /api/v1/whatsapp/status', async () => {
+    const res = await fetch(`${baseUrl}/api/v1/whatsapp/status`);
+    const json: any = await res.json();
+    return res.status === 200 && json.success === true && typeof json.data?.configured === 'boolean';
+  });
+
   // 25. Workshop Settings: Get Profile
   await assertReq('25. GET /api/v1/settings/profile', async () => {
     const res = await fetch(`${baseUrl}/api/v1/settings/profile`);

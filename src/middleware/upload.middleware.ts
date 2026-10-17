@@ -1,23 +1,55 @@
 import multer from 'multer';
 
+import path from 'path';
+
 // Use memory storage for direct processing with Sharp before persisting
 const storage = multer.memoryStorage();
 
-const fileFilter: multer.Options['fileFilter'] = (_req, file, cb) => {
-  const allowed = [
-    'image/jpeg',
-    'image/png',
-    'image/webp',
-    'image/heic',
-    'image/jpg',
-    'application/pdf',
-  ];
+const allowedMimes = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/heic',
+  'image/heif',
+  'image/jpg',
+  'image/gif',
+  'image/bmp',
+  'image/tiff',
+  'application/pdf',
+]);
 
-  if (allowed.includes(file.mimetype.toLowerCase())) {
-    cb(null, true);
-  } else {
-    cb(new Error(`Unsupported file type: ${file.mimetype}. Allowed: JPEG, PNG, WebP, HEIC`));
+const allowedExtensions = new Set([
+  '.jpg',
+  '.jpeg',
+  '.png',
+  '.webp',
+  '.heic',
+  '.heif',
+  '.gif',
+  '.bmp',
+  '.tiff',
+  '.pdf',
+]);
+
+const fileFilter: multer.Options['fileFilter'] = (_req, file, cb) => {
+  const mime = (file.mimetype || '').toLowerCase().trim();
+  const ext = path.extname(file.originalname || '').toLowerCase().trim();
+
+  // Accept if valid MIME type
+  if (allowedMimes.has(mime)) {
+    return cb(null, true);
   }
+
+  // Accept if valid file extension (covers application/octet-stream or missing MIME headers)
+  if (allowedExtensions.has(ext)) {
+    return cb(null, true);
+  }
+
+  const err: any = new Error(
+    `Unsupported file type: ${mime || 'unknown'}${ext ? ` (${ext})` : ''}. Allowed: JPEG, PNG, WebP, HEIC, PDF`
+  );
+  err.status = 400;
+  cb(err);
 };
 
 const upload = multer({

@@ -206,6 +206,66 @@ const store = {
   }>,
 };
 
+function mapDbCustomerToDTO(
+  c: any,
+  photos: any[] = [],
+  frames: any[] = []
+): CustomerResponseDTO {
+  const photoNames = (photos || []).map((p: any) => p.file_name);
+  const photoUrls = (photos || []).map((p: any) => p.file_url);
+  const photoSizeLabels = (photos || []).map((p: any) => {
+    const mb = ((p.file_size_bytes || 0) / (1024 * 1024)).toFixed(1);
+    return `${mb} MB`;
+  });
+
+  const parsedFrames: CustomerFrameDTO[] = (frames || []).map((f: any) => ({
+    id: f.id,
+    size: f.size || '',
+    unit: f.unit || 'Inch',
+    customWidth: f.custom_width || '',
+    customHeight: f.custom_height || '',
+    frameType: f.frame_type || '',
+    material: f.material || '',
+    finish: f.finish || '',
+    orientation: f.orientation || '',
+    qty: f.qty || 1,
+    notes: f.notes || '',
+    photoName: f.photo_name || undefined,
+    photoUrl: f.photo_url || undefined,
+  }));
+
+  const total = Number(c.total) || 0;
+  const advance = Number(c.advance) || 0;
+  const balance = c.balance !== undefined && c.balance !== null ? Number(c.balance) : total - advance;
+
+  return {
+    id: c.id,
+    name: c.name || '',
+    city: c.city || '',
+    phone: c.phone || '',
+    altPhone: c.alt_phone || '',
+    address: c.address || '',
+    pincode: c.pincode || '',
+    photoCount: photoNames.length,
+    photoNames,
+    photoUrls,
+    photoSizeLabels,
+    frameSize: c.frame_size_summary || '',
+    frameType: c.frame_type_summary || '',
+    qty: c.qty || 1,
+    total,
+    advance,
+    balance,
+    paymentStatus: c.payment_status || 'Unpaid',
+    status: c.status || 'pending',
+    orderDate: c.order_date ? new Date(c.order_date).toISOString() : new Date().toISOString(),
+    expectedDelivery: c.expected_delivery ? new Date(c.expected_delivery).toISOString() : null,
+    frames: parsedFrames,
+    createdAt: c.created_at || new Date().toISOString(),
+    updatedAt: c.updated_at || new Date().toISOString(),
+  };
+}
+
 // ==========================================
 // DB SERVICE FACADE
 // ==========================================
@@ -416,6 +476,24 @@ export const db = {
         }
       }
 
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase();
+          const { data } = await sb
+            .from('workshop_settings')
+            .update({
+              ...updates,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', 'default')
+            .select()
+            .maybeSingle();
+          if (data) return data as WorkshopSettings;
+        } catch (e) {
+          logger.error('Error updating workshop settings in Supabase:', e);
+        }
+      }
+
       store.workshopSettings = {
         ...store.workshopSettings,
         ...updates,
@@ -490,6 +568,16 @@ export const db = {
         }
       }
 
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase();
+          const { data } = await sb.from('frame_sizes_master').insert(size).select().maybeSingle();
+          if (data) return data as FrameSizeMaster;
+        } catch (e) {
+          logger.error('Error creating frame size in Supabase:', e);
+        }
+      }
+
       store.frameSizes.push(size);
       return size;
     },
@@ -526,6 +614,21 @@ export const db = {
         }
       }
 
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase();
+          const { data } = await sb
+            .from('frame_sizes_master')
+            .update({ ...updates, updated_at: new Date().toISOString() })
+            .ilike('code', code)
+            .select()
+            .maybeSingle();
+          if (data) return data as FrameSizeMaster;
+        } catch (e) {
+          logger.error('Error updating frame size in Supabase:', e);
+        }
+      }
+
       const idx = store.frameSizes.findIndex((s) => s.code.toLowerCase() === code.toLowerCase());
       if (idx === -1) return null;
       store.frameSizes[idx] = { ...store.frameSizes[idx], ...updates, updated_at: new Date().toISOString() };
@@ -540,6 +643,15 @@ export const db = {
           return (res.rowCount ?? 0) > 0;
         } catch (e) {
           logger.error('Error deleting frame size from DB:', e);
+        }
+      }
+
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase();
+          await sb.from('frame_sizes_master').delete().ilike('code', code);
+        } catch (e) {
+          logger.error('Error deleting frame size from Supabase:', e);
         }
       }
 
@@ -568,6 +680,32 @@ export const db = {
         }
       }
 
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase();
+          const { data, error } = await sb
+            .from('customers')
+            .select('id')
+            .order('id', { ascending: false })
+            .limit(100);
+
+          if (!error && data && data.length > 0) {
+            const ids = data
+              .map((c: any) => {
+                const match = c.id?.match(/^RA-(\d+)$/);
+                return match ? parseInt(match[1], 10) : 0;
+              })
+              .filter((n: number) => !isNaN(n) && n > 0);
+            if (ids.length > 0) {
+              const max = Math.max(...ids);
+              return `RA-${max + 1}`;
+            }
+          }
+        } catch (e) {
+          logger.error('Error querying next ID from Supabase:', e);
+        }
+      }
+
       // Memory fallback
       const ids = store.customers
         .map((c) => parseInt(c.id.replace('RA-', ''), 10))
@@ -581,7 +719,84 @@ export const db = {
       const limit = Math.max(1, filters.limit || 10);
       const offset = (page - 1) * limit;
 
-      // Filter in-memory or database
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase();
+          let query = sb
+            .from('customers')
+            .select(
+              `
+              *,
+              customer_photos (*),
+              customer_frames (*)
+            `,
+              { count: 'exact' }
+            );
+
+          if (filters.search) {
+            const q = filters.search.trim();
+            query = query.or(`id.ilike.%${q}%,name.ilike.%${q}%,phone.ilike.%${q}%`);
+          }
+          if (filters.status) {
+            query = query.eq('status', filters.status);
+          }
+          if (filters.paymentStatus) {
+            query = query.eq('payment_status', filters.paymentStatus);
+          }
+          if (filters.startDate) {
+            query = query.gte('order_date', filters.startDate.slice(0, 10));
+          }
+          if (filters.endDate) {
+            query = query.lte('order_date', filters.endDate.slice(0, 10));
+          }
+
+          const sortCol =
+            filters.sortBy === 'orderDate'
+              ? 'order_date'
+              : filters.sortBy === 'total'
+              ? 'total'
+              : filters.sortBy === 'name'
+              ? 'name'
+              : 'created_at';
+          query = query.order(sortCol, { ascending: filters.sortOrder === 'asc' });
+          query = query.range(offset, offset + limit - 1);
+
+          const { data, count, error } = await query;
+          if (!error && data && (data.length > 0 || store.customers.length === 0)) {
+            const { data: allCusts } = await sb.from('customers').select('status');
+            const statuses = allCusts || [];
+            const statusCounts = {
+              all: statuses.length,
+              pending: statuses.filter((c: any) => c.status === 'pending').length,
+              inProgress: statuses.filter((c: any) => c.status === 'inProgress').length,
+              completed: statuses.filter((c: any) => c.status === 'completed').length,
+              cancelled: statuses.filter((c: any) => c.status === 'cancelled').length,
+            };
+
+            const total = count ?? data.length;
+            const totalPages = Math.ceil(total / limit) || 1;
+            const paginatedData = data.map((c: any) =>
+              mapDbCustomerToDTO(c, c.customer_photos, c.customer_frames)
+            );
+
+            return {
+              success: true,
+              meta: {
+                total,
+                page,
+                limit,
+                totalPages,
+                statusCounts,
+              },
+              data: paginatedData,
+            };
+          }
+        } catch (e) {
+          logger.error('Error fetching customers from Supabase:', e);
+        }
+      }
+
+      // Filter in-memory or database fallback
       let list = [...store.customers];
 
       // Search (id, name, phone)
@@ -657,6 +872,29 @@ export const db = {
     },
 
     async findById(id: string): Promise<CustomerResponseDTO | null> {
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase();
+          const { data, error } = await sb
+            .from('customers')
+            .select(
+              `
+              *,
+              customer_photos (*),
+              customer_frames (*)
+            `
+            )
+            .ilike('id', id)
+            .maybeSingle();
+
+          if (!error && data) {
+            return mapDbCustomerToDTO(data, data.customer_photos, data.customer_frames);
+          }
+        } catch (e) {
+          logger.error('Error fetching customer by id from Supabase:', e);
+        }
+      }
+
       const found = store.customers.find((c) => c.id.toLowerCase() === id.toLowerCase());
       return found || null;
     },
@@ -722,9 +960,83 @@ export const db = {
         updatedAt: new Date().toISOString(),
       };
 
+      // 1. Persist directly to Supabase if configured
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase();
+          const insertPayload: any = {
+            id,
+            name: newCustomer.name,
+            city: newCustomer.city,
+            phone: newCustomer.phone,
+            alt_phone: newCustomer.altPhone,
+            address: newCustomer.address,
+            pincode: newCustomer.pincode,
+            frame_size_summary: newCustomer.frameSize,
+            frame_type_summary: newCustomer.frameType,
+            qty: newCustomer.qty,
+            total: newCustomer.total,
+            advance: newCustomer.advance,
+            payment_status: newCustomer.paymentStatus,
+            status: newCustomer.status,
+            order_date: newCustomer.orderDate ? newCustomer.orderDate.slice(0, 10) : new Date().toISOString().slice(0, 10),
+            expected_delivery: newCustomer.expectedDelivery ? newCustomer.expectedDelivery.slice(0, 10) : null,
+            created_by: customerData.createdBy || null,
+          };
+
+          const { error: custErr } = await sb.from('customers').insert(insertPayload);
+          if (custErr) {
+            logger.error('Error inserting customer into Supabase:', custErr);
+          } else {
+            if (photos.length > 0) {
+              const photoInserts = photos.map((p, idx) => ({
+                customer_id: id,
+                file_name: p.name,
+                file_url: p.url,
+                thumbnail_url: p.thumbnailUrl || null,
+                file_size_bytes: p.sizeBytes,
+                mime_type: p.mimeType,
+                sort_order: idx,
+              }));
+              const { error: photoErr } = await sb.from('customer_photos').insert(photoInserts);
+              if (photoErr) logger.error('Error inserting customer photos into Supabase:', photoErr);
+            }
+
+            if (frames.length > 0) {
+              const frameInserts = frames.map((f) => ({
+                customer_id: id,
+                size: f.size,
+                unit: f.unit || 'Inch',
+                custom_width: f.customWidth || '',
+                custom_height: f.customHeight || '',
+                frame_type: f.frameType || '',
+                material: f.material || '',
+                finish: f.finish || '',
+                orientation: f.orientation || '',
+                qty: f.qty || 1,
+                notes: f.notes || '',
+                photo_name: f.photoName || null,
+                photo_url: f.photoUrl || null,
+              }));
+              const { error: frameErr } = await sb.from('customer_frames').insert(frameInserts);
+              if (frameErr) logger.error('Error inserting customer frames into Supabase:', frameErr);
+            }
+
+            await sb.from('activity_logs').insert({
+              customer_id: id,
+              user_id: customerData.createdBy || null,
+              action: 'CREATED',
+              details: { customerId: id, name: newCustomer.name, total: newCustomer.total, advance: newCustomer.advance },
+            });
+          }
+        } catch (e) {
+          logger.error('Supabase createCustomer exception:', e);
+        }
+      }
+
+      // 2. Also keep in-memory cache synchronized
       store.customers.unshift(newCustomer);
 
-      // Record photos in store
       photos.forEach((p, idx) => {
         store.customerPhotos.push({
           id: `p-${Date.now()}-${idx}`,
@@ -749,23 +1061,22 @@ export const db = {
       newFrames?: CustomerFrameDTO[]
     ): Promise<CustomerResponseDTO | null> {
       const idx = store.customers.findIndex((c) => c.id.toLowerCase() === id.toLowerCase());
-      if (idx === -1) return null;
+      const current = idx !== -1 ? store.customers[idx] : null;
 
-      const current = store.customers[idx];
-      const total = updates.total !== undefined ? Number(updates.total) : current.total;
-      const advance = updates.advance !== undefined ? Number(updates.advance) : current.advance;
+      const total = updates.total !== undefined ? Number(updates.total) : current?.total || 0;
+      const advance = updates.advance !== undefined ? Number(updates.advance) : current?.advance || 0;
       const balance = total - advance;
 
-      let paymentStatus = updates.paymentStatus || current.paymentStatus;
+      let paymentStatus = updates.paymentStatus || current?.paymentStatus || 'Unpaid';
       if (updates.advance !== undefined || updates.total !== undefined) {
         if (advance >= total && total > 0) paymentStatus = 'Paid';
         else if (advance > 0) paymentStatus = 'Partial';
         else paymentStatus = 'Unpaid';
       }
 
-      let photoNames = [...current.photoNames];
-      let photoUrls = [...current.photoUrls];
-      let photoSizeLabels = [...current.photoSizeLabels];
+      let photoNames = current ? [...current.photoNames] : [];
+      let photoUrls = current ? [...current.photoUrls] : [];
+      let photoSizeLabels = current ? [...current.photoSizeLabels] : [];
 
       if (newPhotos && newPhotos.length > 0) {
         newPhotos.forEach((p, pIdx) => {
@@ -788,8 +1099,82 @@ export const db = {
         });
       }
 
+      // Update Supabase
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase();
+          const dbUpdates: any = {
+            updated_at: new Date().toISOString(),
+          };
+          if (updates.name !== undefined) dbUpdates.name = updates.name;
+          if (updates.city !== undefined) dbUpdates.city = updates.city;
+          if (updates.phone !== undefined) dbUpdates.phone = updates.phone;
+          if (updates.altPhone !== undefined) dbUpdates.alt_phone = updates.altPhone;
+          if (updates.address !== undefined) dbUpdates.address = updates.address;
+          if (updates.pincode !== undefined) dbUpdates.pincode = updates.pincode;
+          if (updates.total !== undefined) dbUpdates.total = Number(updates.total);
+          if (updates.advance !== undefined) dbUpdates.advance = Number(updates.advance);
+          if (paymentStatus !== undefined) dbUpdates.payment_status = paymentStatus;
+          if (updates.status !== undefined) dbUpdates.status = updates.status;
+          if (updates.frameSize !== undefined) dbUpdates.frame_size_summary = updates.frameSize;
+          if (updates.frameType !== undefined) dbUpdates.frame_type_summary = updates.frameType;
+          if (updates.qty !== undefined) dbUpdates.qty = updates.qty;
+          if (updates.orderDate !== undefined) dbUpdates.order_date = updates.orderDate.slice(0, 10);
+          if (updates.expectedDelivery !== undefined) {
+            dbUpdates.expected_delivery = updates.expectedDelivery ? updates.expectedDelivery.slice(0, 10) : null;
+          }
+
+          await sb.from('customers').update(dbUpdates).ilike('id', id);
+
+          if (newPhotos && newPhotos.length > 0) {
+            const photoInserts = newPhotos.map((p, pIdx) => ({
+              customer_id: id,
+              file_name: p.name,
+              file_url: p.url,
+              thumbnail_url: p.thumbnailUrl || null,
+              file_size_bytes: p.sizeBytes,
+              mime_type: p.mimeType,
+              sort_order: photoNames.length + pIdx,
+            }));
+            await sb.from('customer_photos').insert(photoInserts);
+          }
+
+          if (newFrames && newFrames.length > 0) {
+            await sb.from('customer_frames').delete().ilike('customer_id', id);
+            const frameInserts = newFrames.map((f) => ({
+              customer_id: id,
+              size: f.size,
+              unit: f.unit || 'Inch',
+              custom_width: f.customWidth || '',
+              custom_height: f.customHeight || '',
+              frame_type: f.frameType || '',
+              material: f.material || '',
+              finish: f.finish || '',
+              orientation: f.orientation || '',
+              qty: f.qty || 1,
+              notes: f.notes || '',
+              photo_name: f.photoName || null,
+              photo_url: f.photoUrl || null,
+            }));
+            await sb.from('customer_frames').insert(frameInserts);
+          }
+
+          await sb.from('activity_logs').insert({
+            customer_id: id,
+            action: 'UPDATED',
+            details: { updates: Object.keys(updates) },
+          });
+        } catch (e) {
+          logger.error('Supabase updateCustomer exception:', e);
+        }
+      }
+
+      if (idx === -1) {
+        return null;
+      }
+
       const updated: CustomerResponseDTO = {
-        ...current,
+        ...current!,
         ...updates,
         total,
         advance,
@@ -799,7 +1184,7 @@ export const db = {
         photoNames,
         photoUrls,
         photoSizeLabels,
-        frames: newFrames && newFrames.length > 0 ? newFrames : current.frames,
+        frames: newFrames && newFrames.length > 0 ? newFrames : current!.frames,
         updatedAt: new Date().toISOString(),
       };
 
@@ -808,32 +1193,108 @@ export const db = {
     },
 
     async updateStatus(id: string, status: OrderStatus): Promise<CustomerResponseDTO | null> {
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase();
+          await sb
+            .from('customers')
+            .update({ status, updated_at: new Date().toISOString() })
+            .ilike('id', id);
+
+          await sb.from('activity_logs').insert({
+            customer_id: id,
+            action: 'STATUS_CHANGE',
+            details: { status },
+          });
+        } catch (e) {
+          logger.error('Error updating status in Supabase:', e);
+        }
+      }
+
       const customer = await this.findById(id);
       if (!customer) return null;
       return this.updateCustomer(id, { status });
     },
 
-    async updatePayment(id: string, advance: number, paymentStatus: PaymentStatus): Promise<CustomerResponseDTO | null> {
+    async updatePayment(
+      id: string,
+      advance: number,
+      paymentStatus: PaymentStatus
+    ): Promise<CustomerResponseDTO | null> {
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase();
+          await sb
+            .from('customers')
+            .update({ advance, payment_status: paymentStatus, updated_at: new Date().toISOString() })
+            .ilike('id', id);
+
+          await sb.from('activity_logs').insert({
+            customer_id: id,
+            action: 'PAYMENT_RECEIVED',
+            details: { advance, paymentStatus },
+          });
+        } catch (e) {
+          logger.error('Error updating payment in Supabase:', e);
+        }
+      }
+
       const customer = await this.findById(id);
       if (!customer) return null;
       return this.updateCustomer(id, { advance, paymentStatus });
     },
 
     async deleteCustomer(id: string): Promise<boolean> {
+      let supabaseDeleted = false;
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase();
+          const { error } = await sb.from('customers').delete().ilike('id', id);
+          if (!error) {
+            supabaseDeleted = true;
+            await sb.from('activity_logs').insert({
+              customer_id: id,
+              action: 'DELETED',
+              details: { id },
+            });
+          }
+        } catch (e) {
+          logger.error('Error deleting customer from Supabase:', e);
+        }
+      }
+
       const initial = store.customers.length;
       store.customers = store.customers.filter((c) => c.id.toLowerCase() !== id.toLowerCase());
-      store.customerPhotos = store.customerPhotos.filter((p) => p.customer_id.toLowerCase() !== id.toLowerCase());
-      return store.customers.length < initial;
+      store.customerPhotos = store.customerPhotos.filter(
+        (p) => p.customer_id.toLowerCase() !== id.toLowerCase()
+      );
+      return store.customers.length < initial || supabaseDeleted;
     },
 
     async deletePhoto(customerId: string, photoId: string): Promise<boolean> {
+      let supabaseDeleted = false;
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase();
+          const { error } = await sb
+            .from('customer_photos')
+            .delete()
+            .ilike('customer_id', customerId)
+            .or(`id.eq.${photoId},file_name.eq.${photoId}`);
+          if (!error) supabaseDeleted = true;
+        } catch (e) {
+          logger.error('Error deleting photo from Supabase:', e);
+        }
+      }
+
       const photoIdx = store.customerPhotos.findIndex(
-        (p) => p.customer_id.toLowerCase() === customerId.toLowerCase() && (p.id === photoId || p.file_name === photoId)
+        (p) =>
+          p.customer_id.toLowerCase() === customerId.toLowerCase() &&
+          (p.id === photoId || p.file_name === photoId)
       );
 
       if (photoIdx !== -1) {
         const [removed] = store.customerPhotos.splice(photoIdx, 1);
-        // Also update customer cache
         const cust = store.customers.find((c) => c.id.toLowerCase() === customerId.toLowerCase());
         if (cust) {
           const nameIdx = cust.photoNames.indexOf(removed.file_name);
@@ -846,16 +1307,55 @@ export const db = {
         }
         return true;
       }
-      return false;
+      return supabaseDeleted;
     },
 
     async getPhotos(customerId: string) {
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase();
+          const { data, error } = await sb
+            .from('customer_photos')
+            .select('*')
+            .ilike('customer_id', customerId)
+            .order('sort_order', { ascending: true });
+
+          if (!error && data && data.length > 0) {
+            return data;
+          }
+        } catch (e) {
+          logger.error('Error fetching customer photos from Supabase:', e);
+        }
+      }
+
       return store.customerPhotos.filter(
         (p) => p.customer_id.toLowerCase() === customerId.toLowerCase()
       );
     },
 
     async getAllForExport(): Promise<CustomerResponseDTO[]> {
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase();
+          const { data, error } = await sb
+            .from('customers')
+            .select(
+              `
+              *,
+              customer_photos (*),
+              customer_frames (*)
+            `
+            )
+            .order('created_at', { ascending: false });
+
+          if (!error && data && data.length > 0) {
+            return data.map((c: any) => mapDbCustomerToDTO(c, c.customer_photos, c.customer_frames));
+          }
+        } catch (e) {
+          logger.error('Error exporting customers from Supabase:', e);
+        }
+      }
+
       return [...store.customers];
     },
   },
@@ -863,6 +1363,53 @@ export const db = {
   // --- DASHBOARD ANALYTICS ---
   dashboard: {
     async getStats(): Promise<DashboardStats> {
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase();
+          const { data: customers, error } = await sb
+            .from('customers')
+            .select('id, name, phone, frame_size_summary, frame_type_summary, qty, total, advance, balance, status, order_date')
+            .order('created_at', { ascending: false });
+
+          if (!error && customers && customers.length > 0) {
+            const totalCustomers = customers.length;
+            const totalRevenue = customers.reduce((acc: number, c: any) => acc + (Number(c.total) || 0), 0);
+            const totalAdvance = customers.reduce((acc: number, c: any) => acc + (Number(c.advance) || 0), 0);
+            const pendingBalance = totalRevenue - totalAdvance;
+
+            const statusCounts = {
+              pending: customers.filter((c: any) => c.status === 'pending').length,
+              inProgress: customers.filter((c: any) => c.status === 'inProgress').length,
+              completed: customers.filter((c: any) => c.status === 'completed').length,
+              cancelled: customers.filter((c: any) => c.status === 'cancelled').length,
+            };
+
+            const recentOrders = customers.slice(0, 10).map((c: any) => ({
+              id: c.id,
+              name: c.name,
+              phone: c.phone,
+              frameSize: c.frame_size_summary,
+              frameType: c.frame_type_summary,
+              qty: c.qty,
+              total: Number(c.total) || 0,
+              status: c.status,
+              orderDate: c.order_date,
+            }));
+
+            return {
+              totalCustomers,
+              totalRevenue,
+              totalAdvance,
+              pendingBalance,
+              statusCounts,
+              recentOrders,
+            };
+          }
+        } catch (e) {
+          logger.error('Supabase dashboard.getStats exception:', e);
+        }
+      }
+
       const customers = store.customers;
       const totalCustomers = customers.length;
       const totalRevenue = customers.reduce((acc, c) => acc + (c.total || 0), 0);
@@ -902,6 +1449,65 @@ export const db = {
   // --- REPORTS ---
   reports: {
     async getSummary(period: string = 'month1'): Promise<ReportsSummary> {
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase();
+          const { data: customers, error } = await sb
+            .from('customers')
+            .select('id, total, advance, status, frame_size_summary, qty, order_date');
+
+          if (!error && customers && customers.length > 0) {
+            let list = customers;
+            if (period === 'month1') {
+              const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+              list = customers.filter((c: any) => (c.order_date || '') >= cutoff);
+            }
+
+            const orderCount = list.length;
+            const grossSales = list.reduce((acc: number, c: any) => acc + (Number(c.total) || 0), 0);
+            const advanceCollected = list.reduce((acc: number, c: any) => acc + (Number(c.advance) || 0), 0);
+            const outstandingBalance = grossSales - advanceCollected;
+
+            const sizeMap = new Map<string, { count: number; revenue: number }>();
+            list.forEach((c: any) => {
+              const size = c.frame_size_summary || 'Standard';
+              const cur = sizeMap.get(size) || { count: 0, revenue: 0 };
+              cur.count += c.qty || 1;
+              cur.revenue += Number(c.total) || 0;
+              sizeMap.set(size, cur);
+            });
+
+            const topSellingSizes = Array.from(sizeMap.entries())
+              .map(([size, stat]) => ({
+                size,
+                count: stat.count,
+                revenue: stat.revenue,
+              }))
+              .sort((a, b) => b.count - a.count)
+              .slice(0, 5);
+
+            const statusBreakdown = {
+              completed: list.filter((c: any) => c.status === 'completed').length,
+              inProgress: list.filter((c: any) => c.status === 'inProgress').length,
+              pending: list.filter((c: any) => c.status === 'pending').length,
+              cancelled: list.filter((c: any) => c.status === 'cancelled').length,
+            };
+
+            return {
+              period,
+              orderCount,
+              grossSales,
+              advanceCollected,
+              outstandingBalance,
+              topSellingSizes,
+              statusBreakdown,
+            };
+          }
+        } catch (e) {
+          logger.error('Supabase reports.getSummary exception:', e);
+        }
+      }
+
       const customers = store.customers;
       const orderCount = customers.length;
       const grossSales = customers.reduce((acc, c) => acc + (c.total || 0), 0);

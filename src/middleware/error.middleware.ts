@@ -14,14 +14,24 @@ export function errorHandler(
   res: Response,
   _next: NextFunction
 ): void {
-  logger.error(`Unhandled Error [${req.method} ${req.path}]:`, err);
+  const isClientError =
+    err.name === 'MulterError' ||
+    err.status === 400 ||
+    err.statusCode === 400 ||
+    (err.message && err.message.includes('Unsupported file type'));
 
-  const statusCode = err.status || err.statusCode || 500;
+  const statusCode = isClientError ? 400 : (err.status || err.statusCode || 500);
   const message = err.message || 'Internal Server Error';
+
+  if (statusCode >= 500) {
+    logger.error(`Unhandled Error [${req.method} ${req.path}]:`, err);
+  } else {
+    logger.warn(`Client Error [${req.method} ${req.path}] (${statusCode}): ${message}`);
+  }
 
   res.status(statusCode).json({
     success: false,
     message,
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack }),
+    ...(process.env.NODE_ENV === 'development' && statusCode >= 500 && { stack: err.stack }),
   });
 }

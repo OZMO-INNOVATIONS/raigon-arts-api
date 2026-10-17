@@ -14,6 +14,7 @@
     "start": "node dist/server.js",
     "seed": "tsx src/db/seed.ts",
     "migrate": "tsx src/db/migrate.ts",
+    "verify:supabase": "tsx src/tests/verify_supabase.ts",
     "test": "tsx src/tests/test_all_endpoints.ts"
   },
   "keywords": [

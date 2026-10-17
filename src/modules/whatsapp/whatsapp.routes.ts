@@ -10,6 +10,9 @@ import {
 const router = Router();
 
 router.use(optionalToken);
+ 
+// 7.0 Get WhatsApp Service Status
+router.get('/status', WhatsAppController.getStatus);
 
 // 7.1 Send Order Confirmation WhatsApp Message
 router.post(

@@ -27,14 +27,28 @@ export class StorageService {
         const sb = getSupabase();
         const bucket = config.supabase.storageBucket;
 
-        const { error } = await sb.storage.from(bucket).upload(cleanPath, buffer, {
+        let uploadResult = await sb.storage.from(bucket).upload(cleanPath, buffer, {
           contentType: mimeType,
           upsert: true,
         });
 
-        if (error) {
-          logger.error('Supabase storage upload error:', error);
-          throw error;
+        if (
+          uploadResult.error &&
+          ((uploadResult.error as any).code === 'NoSuchBucket' ||
+            uploadResult.error.message?.includes('Bucket not found') ||
+            (uploadResult.error as any).statusCode === '404')
+        ) {
+          logger.info(`Bucket "${bucket}" not found. Auto-creating public bucket in Supabase...`);
+          await sb.storage.createBucket(bucket, { public: true });
+          uploadResult = await sb.storage.from(bucket).upload(cleanPath, buffer, {
+            contentType: mimeType,
+            upsert: true,
+          });
+        }
+
+        if (uploadResult.error) {
+          logger.error('Supabase storage upload error:', uploadResult.error);
+          throw uploadResult.error;
         }
 
         const { data: urlData } = sb.storage.from(bucket).getPublicUrl(cleanPath);

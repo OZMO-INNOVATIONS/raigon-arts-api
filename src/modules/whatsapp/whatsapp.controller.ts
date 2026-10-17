@@ -2,6 +2,14 @@ import { Request, Response, NextFunction } from 'express';
 import { WhatsAppModuleService } from './whatsapp.service.js';
 
 export class WhatsAppController {
+  static async getStatus(_req: Request, res: Response, next: NextFunction) {
+    try {
+      const status = WhatsAppModuleService.getStatus();
+      res.status(200).json({ success: true, data: status });
+    } catch (err) {
+      next(err);
+    }
+  }
   static async sendOrderConfirmation(req: Request, res: Response, next: NextFunction) {
     try {
       const { customerId } = req.body;
