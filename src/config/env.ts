@@ -30,7 +30,7 @@ export const config = {
   },
 
   storage: {
-    mode: ((process.env.STORAGE_MODE || 'supabase') === 'local' ? 'local' : 'supabase') as 'supabase' | 'local',
+    mode: ((process.env.STORAGE_MODE === 'local' && process.env.NODE_ENV !== 'production' && !process.env.RENDER) ? 'local' : 'supabase') as 'supabase' | 'local',
     localPath: path.resolve(process.cwd(), process.env.LOCAL_STORAGE_PATH || './uploads'),
     cdnBaseUrl: process.env.CDN_BASE_URL || (process.env.RENDER_EXTERNAL_URL ? `${process.env.RENDER_EXTERNAL_URL}/uploads` : ''),
   },

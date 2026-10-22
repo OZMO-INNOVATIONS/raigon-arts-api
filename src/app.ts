@@ -42,6 +42,7 @@ app.get(['/', '/health'], (_req, res) => {
     success: true,
     name: 'Raigon Art Backend REST API',
     version: '2.0.0',
+    buildTag: '2026.10.22-supabase-sync-v1',
     status: 'ONLINE',
     storageMode: config.storage.mode,
     timestamp: new Date().toISOString(),
