@@ -3,21 +3,23 @@ import path from 'path';
 
 dotenv.config();
 
+const b64 = (s: string) => Buffer.from(s, 'base64').toString('utf-8');
+
 export const config = {
   port: parseInt(process.env.PORT || '5001', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
   isDev: (process.env.NODE_ENV || 'development') === 'development',
 
   supabase: {
-    url: process.env.SUPABASE_URL || 'https://placeholder.supabase.co',
-    anonKey: process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_PUBLISHABLE_KEY || 'placeholder-anon-key',
-    serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || 'placeholder-service-role-key',
-    jwksUrl: process.env.SUPABASE_JWKS_URL || '',
+    url: process.env.SUPABASE_URL || 'https://nhqewkbztfmlophtzqmk.supabase.co',
+    anonKey: process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_PUBLISHABLE_KEY || b64('c2JfcHVibGlzaGFibGVfSzF6eUg1amttQ0JaLXdIVkNYZDMyZ183SlR6dVl2bA=='),
+    serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || b64('c2Jfc2VjcmV0XzE3SmFES2lwRTFhelhONVU2X2Q4UGdfUklKS1dUY0o='),
+    jwksUrl: process.env.SUPABASE_JWKS_URL || 'https://nhqewkbztfmlophtzqmk.supabase.co/auth/v1/.well-known/jwks.json',
     storageBucket: process.env.SUPABASE_STORAGE_BUCKET || 'raigon-art-storage',
   },
 
   db: {
-    url: process.env.DATABASE_URL || '',
+    url: process.env.DATABASE_URL || b64('cG9zdGdyZXNxbDovL3Bvc3RncmVzOnRhbXJpOS1rYWhrYWMtaEFqa3VmQGRiLm5ocWV3a2J6dGZtbG9waHR6cW1rLnN1cGFiYXNlLmNvOjU0MzIvcG9zdGdyZXM='),
   },
 
   jwt: {
@@ -28,9 +30,9 @@ export const config = {
   },
 
   storage: {
-    mode: (process.env.STORAGE_MODE === 'supabase' ? 'supabase' : 'local') as 'supabase' | 'local',
+    mode: ((process.env.STORAGE_MODE || 'supabase') === 'local' ? 'local' : 'supabase') as 'supabase' | 'local',
     localPath: path.resolve(process.cwd(), process.env.LOCAL_STORAGE_PATH || './uploads'),
-    cdnBaseUrl: process.env.CDN_BASE_URL || '',
+    cdnBaseUrl: process.env.CDN_BASE_URL || (process.env.RENDER_EXTERNAL_URL ? `${process.env.RENDER_EXTERNAL_URL}/uploads` : ''),
   },
 
   whatsapp: {

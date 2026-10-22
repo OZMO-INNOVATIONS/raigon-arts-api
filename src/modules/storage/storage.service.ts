@@ -66,7 +66,10 @@ export class StorageService {
     this.ensureLocalDir(path.dirname(fullLocalPath));
     await fs.promises.writeFile(fullLocalPath, buffer);
 
-    const baseUrl = config.storage.cdnBaseUrl || `http://localhost:${config.port}/uploads`;
+    const fallbackHost = process.env.RENDER_EXTERNAL_URL
+      ? `${process.env.RENDER_EXTERNAL_URL}/uploads`
+      : `http://localhost:${config.port}/uploads`;
+    const baseUrl = config.storage.cdnBaseUrl || fallbackHost;
     const publicUrl = `${baseUrl}/${cleanPath}`;
 
     return {

@@ -216,11 +216,16 @@ function normalizePhotoUrl(url: string | null | undefined): string {
       'https://nhqewkbztfmlophtzqmk.supabase.co/storage/v1/object/public/raigon-art-storage/'
     );
   }
+  if (clean.includes('localhost:10000/uploads/') || clean.includes('localhost:5001/uploads/')) {
+    const publicHost = process.env.RENDER_EXTERNAL_URL || 'https://raigon-arts-api-1a3z.onrender.com';
+    clean = clean.replace(/http:\/\/localhost:(?:10000|5001)\/uploads\//, `${publicHost}/uploads/`);
+  }
   if (clean.startsWith('http://') || clean.startsWith('https://')) {
     return clean;
   }
   if (clean.startsWith('/uploads/')) {
-    return `http://localhost:${config.port}${clean}`;
+    const publicHost = process.env.RENDER_EXTERNAL_URL || (config.isDev ? `http://localhost:${config.port}` : 'https://raigon-arts-api-1a3z.onrender.com');
+    return `${publicHost}${clean}`;
   }
   if (clean.startsWith('customers/')) {
     return `https://nhqewkbztfmlophtzqmk.supabase.co/storage/v1/object/public/raigon-art-storage/${clean}`;
@@ -1120,33 +1125,50 @@ export const db = {
       if (isSupabaseConfigured()) {
         try {
           const sb = getSupabase();
+          const isUuid = (val: any) =>
+            typeof val === 'string' &&
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+          const safeCreatedBy = isUuid(customerData.createdBy) ? customerData.createdBy : null;
+
+          let targetId = id;
           const insertPayload: any = {
-            id,
-            name: newCustomer.name,
-            city: newCustomer.city,
-            phone: newCustomer.phone,
-            alt_phone: newCustomer.altPhone,
-            address: newCustomer.address,
-            pincode: newCustomer.pincode,
-            frame_size_summary: newCustomer.frameSize,
-            frame_type_summary: newCustomer.frameType,
-            qty: newCustomer.qty,
-            total: newCustomer.total,
-            advance: newCustomer.advance,
-            payment_status: newCustomer.paymentStatus,
-            status: newCustomer.status,
+            id: targetId,
+            name: newCustomer.name || 'Customer',
+            city: newCustomer.city || '',
+            phone: newCustomer.phone || '0000000000',
+            alt_phone: newCustomer.altPhone || '',
+            address: newCustomer.address || '',
+            pincode: newCustomer.pincode || '',
+            frame_size_summary: newCustomer.frameSize || 'Standard',
+            frame_type_summary: newCustomer.frameType || 'Wooden Frame',
+            qty: newCustomer.qty || 1,
+            total: newCustomer.total || 0,
+            advance: newCustomer.advance || 0,
+            payment_status: newCustomer.paymentStatus || 'Unpaid',
+            status: newCustomer.status || 'pending',
             order_date: newCustomer.orderDate ? newCustomer.orderDate.slice(0, 10) : new Date().toISOString().slice(0, 10),
             expected_delivery: newCustomer.expectedDelivery ? newCustomer.expectedDelivery.slice(0, 10) : null,
-            created_by: customerData.createdBy || null,
+            created_by: safeCreatedBy,
           };
 
-          const { error: custErr } = await sb.from('customers').insert(insertPayload);
+          let { error: custErr } = await sb.from('customers').insert(insertPayload);
+
+          // If duplicate key conflict occurs, fetch a fresh sequential ID and retry
+          if (custErr && custErr.code === '23505') {
+            logger.warn(`ID collision on ${targetId}. Fetching fresh ID from Supabase...`);
+            targetId = await this.getNextId();
+            insertPayload.id = targetId;
+            newCustomer.id = targetId;
+            const retryRes = await sb.from('customers').insert(insertPayload);
+            custErr = retryRes.error;
+          }
+
           if (custErr) {
             logger.error('Error inserting customer into Supabase:', custErr);
           } else {
             if (photos.length > 0) {
               const photoInserts = photos.map((p, idx) => ({
-                customer_id: id,
+                customer_id: targetId,
                 file_name: p.name,
                 file_url: p.url,
                 thumbnail_url: p.thumbnailUrl || null,
@@ -1160,7 +1182,7 @@ export const db = {
 
             if (frames.length > 0) {
               const frameInserts = frames.map((f) => ({
-                customer_id: id,
+                customer_id: targetId,
                 size: f.size,
                 unit: f.unit || 'Inch',
                 custom_width: f.customWidth || '',
@@ -1179,10 +1201,10 @@ export const db = {
             }
 
             await sb.from('activity_logs').insert({
-              customer_id: id,
-              user_id: customerData.createdBy || null,
+              customer_id: targetId,
+              user_id: safeCreatedBy,
               action: 'CREATED',
-              details: { customerId: id, name: newCustomer.name, total: newCustomer.total, advance: newCustomer.advance },
+              details: { customerId: targetId, name: newCustomer.name, total: newCustomer.total, advance: newCustomer.advance },
             });
           }
         } catch (e) {
@@ -1432,30 +1454,61 @@ export const db = {
     },
 
     async deleteCustomer(id: string): Promise<boolean> {
-      let supabaseDeleted = false;
+      let wasDeleted = false;
+      const cleanId = id.trim();
+
+      // 1. Direct PostgreSQL pool execution if connected
+      const pool = getDbPool();
+      if (pool && isDbConnected()) {
+        try {
+          await pool.query('DELETE FROM customer_photos WHERE LOWER(TRIM(customer_id)) = LOWER(TRIM($1))', [cleanId]);
+          await pool.query('DELETE FROM customer_frames WHERE LOWER(TRIM(customer_id)) = LOWER(TRIM($1))', [cleanId]);
+          await pool.query('DELETE FROM activity_logs WHERE LOWER(TRIM(customer_id)) = LOWER(TRIM($1))', [cleanId]);
+          const res = await pool.query('DELETE FROM customers WHERE LOWER(TRIM(id)) = LOWER(TRIM($1))', [cleanId]);
+          if ((res.rowCount ?? 0) > 0) {
+            wasDeleted = true;
+          }
+        } catch (e) {
+          logger.error('Error deleting customer from PostgreSQL pool:', e);
+        }
+      }
+
+      // 2. Supabase PostgREST client execution
       if (isSupabaseConfigured()) {
         try {
           const sb = getSupabase();
-          const { error } = await sb.from('customers').delete().ilike('id', id);
+          // Clear dependent records first to ensure no foreign key deferrals
+          await sb.from('customer_photos').delete().or(`customer_id.eq.${cleanId},customer_id.ilike.${cleanId}`);
+          await sb.from('customer_frames').delete().or(`customer_id.eq.${cleanId},customer_id.ilike.${cleanId}`);
+          await sb.from('activity_logs').delete().or(`customer_id.eq.${cleanId},customer_id.ilike.${cleanId}`);
+
+          const { error } = await sb.from('customers').delete().or(`id.eq.${cleanId},id.ilike.${cleanId}`);
           if (!error) {
-            supabaseDeleted = true;
+            wasDeleted = true;
             await sb.from('activity_logs').insert({
-              customer_id: id,
+              customer_id: cleanId,
               action: 'DELETED',
-              details: { id },
+              details: { id: cleanId },
             });
+          } else {
+            logger.error('Error deleting customer from Supabase:', error);
           }
         } catch (e) {
           logger.error('Error deleting customer from Supabase:', e);
         }
       }
 
+      // 3. Clear from in-memory cache
       const initial = store.customers.length;
-      store.customers = store.customers.filter((c) => c.id.toLowerCase() !== id.toLowerCase());
+      store.customers = store.customers.filter((c) => c.id.toLowerCase() !== cleanId.toLowerCase());
       store.customerPhotos = store.customerPhotos.filter(
-        (p) => p.customer_id.toLowerCase() !== id.toLowerCase()
+        (p) => p.customer_id.toLowerCase() !== cleanId.toLowerCase()
       );
-      return store.customers.length < initial || supabaseDeleted;
+      if (store.customers.length < initial) {
+        wasDeleted = true;
+      }
+
+      return wasDeleted;
     },
 
     async deletePhoto(customerId: string, photoId: string): Promise<boolean> {

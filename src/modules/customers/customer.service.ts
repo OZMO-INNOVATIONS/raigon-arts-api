@@ -331,20 +331,26 @@ export class CustomerService {
   }
 
   static async delete(id: string) {
-    const customer = await db.customers.findById(id);
-    if (!customer) {
-      throw { status: 404, message: `Customer ${id} not found.` };
-    }
+    const cleanId = id.trim();
+    const customer = await db.customers.findById(cleanId);
 
-    // Clean customer photos from storage
-    if (customer.photoUrls) {
+    // Clean customer photos from storage if available
+    if (customer && customer.photoUrls) {
       for (const url of customer.photoUrls) {
-        await StorageService.deleteFile(url);
+        try {
+          await StorageService.deleteFile(url);
+        } catch (e) {
+          logger.warn(`Could not delete storage file ${url}:`, e);
+        }
       }
     }
 
-    await db.customers.deleteCustomer(id);
-    return { message: `Customer ${id} deleted.` };
+    const wasDeleted = await db.customers.deleteCustomer(cleanId);
+    if (!wasDeleted && !customer) {
+      throw { status: 404, message: `Customer ${cleanId} not found.` };
+    }
+
+    return { message: `Customer ${cleanId} deleted.` };
   }
 
   static async deletePhoto(id: string, photoId: string) {
