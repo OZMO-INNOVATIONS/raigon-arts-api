@@ -20,7 +20,8 @@ export async function processImageForVault(
   fileBuffer: Buffer,
   originalFilename: string
 ): Promise<ProcessedImage> {
-  const baseName = originalFilename.replace(/\.[^/.]+$/, '');
+  const safeFilename = originalFilename ? originalFilename.replace(/^.*[\\\/]/, '') : 'photo';
+  const baseName = safeFilename.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_') || 'photo';
   const webpFileName = `${baseName}.webp`;
   const thumbFileName = `${baseName}_thumb.webp`;
 

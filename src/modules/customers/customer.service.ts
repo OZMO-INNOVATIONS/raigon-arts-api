@@ -79,20 +79,77 @@ export class CustomerService {
           file
         );
         framePhotosMap.set(file.originalname, uploaded.fileUrl);
+        framePhotosMap.set(uploaded.fileName, uploaded.fileUrl);
+
+        // Also add frame photos to customer photos if no vault photos were uploaded
+        if (uploadedPhotos.length === 0) {
+          processedPhotos.push({
+            name: uploaded.fileName,
+            url: uploaded.fileUrl,
+            thumbnailUrl: uploaded.thumbnailUrl,
+            sizeBytes: uploaded.sizeBytes,
+            mimeType: uploaded.mimeType,
+          });
+        }
       } catch (e) {
         logger.error(`Error uploading frame photo ${file.originalname}:`, e);
       }
     }
 
-    // 3. Assemble frames
-    const frames: CustomerFrameDTO[] = (data.frames || []).map((f: any) => {
+    // Helper to resolve frame photo URL
+    const resolveFrame = (f: any, idx: number) => {
       let photoUrl = f.photoUrl || '';
-      if (f.photoName && framePhotosMap.has(f.photoName)) {
-        photoUrl = framePhotosMap.get(f.photoName)!;
+      let photoName = f.photoName;
+
+      if (photoName) {
+        if (framePhotosMap.has(photoName)) {
+          return { photoUrl: framePhotosMap.get(photoName)!, photoName };
+        }
+        for (const [k, v] of framePhotosMap.entries()) {
+          if (k.toLowerCase() === photoName.toLowerCase()) {
+            return { photoUrl: v, photoName: k };
+          }
+        }
+        const base = photoName.replace(/\.[^/.]+$/, '').toLowerCase();
+        for (const [k, v] of framePhotosMap.entries()) {
+          if (k.replace(/\.[^/.]+$/, '').toLowerCase() === base) {
+            return { photoUrl: v, photoName: k };
+          }
+        }
+        for (const p of processedPhotos) {
+          if (
+            p.name.toLowerCase() === photoName.toLowerCase() ||
+            p.name.replace(/\.[^/.]+$/, '').toLowerCase() === base
+          ) {
+            return { photoUrl: p.url, photoName: p.name };
+          }
+        }
       }
+
+      if (uploadedFramePhotos[idx] && framePhotosMap.has(uploadedFramePhotos[idx].originalname)) {
+        return {
+          photoUrl: framePhotosMap.get(uploadedFramePhotos[idx].originalname)!,
+          photoName: uploadedFramePhotos[idx].originalname,
+        };
+      }
+
+      if (!photoUrl && processedPhotos.length > 0) {
+        const fallback = processedPhotos[idx] || processedPhotos[0];
+        if (fallback) {
+          return { photoUrl: fallback.url, photoName: fallback.name };
+        }
+      }
+
+      return { photoUrl, photoName };
+    };
+
+    // 3. Assemble frames
+    const frames: CustomerFrameDTO[] = (data.frames || []).map((f: any, idx: number) => {
+      const match = resolveFrame(f, idx);
       return {
         ...f,
-        photoUrl,
+        photoUrl: match.photoUrl,
+        photoName: match.photoName || f.photoName,
       };
     });
 
@@ -151,22 +208,77 @@ export class CustomerService {
           file
         );
         framePhotosMap.set(file.originalname, uploaded.fileUrl);
+        framePhotosMap.set(uploaded.fileName, uploaded.fileUrl);
+
+        if (uploadedPhotos.length === 0) {
+          processedPhotos.push({
+            name: uploaded.fileName,
+            url: uploaded.fileUrl,
+            thumbnailUrl: uploaded.thumbnailUrl,
+            sizeBytes: uploaded.sizeBytes,
+            mimeType: uploaded.mimeType,
+          });
+        }
       } catch (e) {
         logger.error(`Error uploading frame photo ${file.originalname}:`, e);
       }
     }
 
+    const resolveFrame = (f: any, idx: number) => {
+      let photoUrl = f.photoUrl || '';
+      let photoName = f.photoName;
+
+      if (photoName) {
+        if (framePhotosMap.has(photoName)) {
+          return { photoUrl: framePhotosMap.get(photoName)!, photoName };
+        }
+        for (const [k, v] of framePhotosMap.entries()) {
+          if (k.toLowerCase() === photoName.toLowerCase()) {
+            return { photoUrl: v, photoName: k };
+          }
+        }
+        const base = photoName.replace(/\.[^/.]+$/, '').toLowerCase();
+        for (const [k, v] of framePhotosMap.entries()) {
+          if (k.replace(/\.[^/.]+$/, '').toLowerCase() === base) {
+            return { photoUrl: v, photoName: k };
+          }
+        }
+        for (const p of processedPhotos) {
+          if (
+            p.name.toLowerCase() === photoName.toLowerCase() ||
+            p.name.replace(/\.[^/.]+$/, '').toLowerCase() === base
+          ) {
+            return { photoUrl: p.url, photoName: p.name };
+          }
+        }
+      }
+
+      if (uploadedFramePhotos[idx] && framePhotosMap.has(uploadedFramePhotos[idx].originalname)) {
+        return {
+          photoUrl: framePhotosMap.get(uploadedFramePhotos[idx].originalname)!,
+          photoName: uploadedFramePhotos[idx].originalname,
+        };
+      }
+
+      if (!photoUrl && processedPhotos.length > 0) {
+        const fallback = processedPhotos[idx] || processedPhotos[0];
+        if (fallback) {
+          return { photoUrl: fallback.url, photoName: fallback.name };
+        }
+      }
+
+      return { photoUrl, photoName };
+    };
+
     // 3. Assemble frames if provided
     let frames: CustomerFrameDTO[] | undefined = undefined;
     if (data.frames && Array.isArray(data.frames)) {
-      frames = data.frames.map((f: any) => {
-        let photoUrl = f.photoUrl || '';
-        if (f.photoName && framePhotosMap.has(f.photoName)) {
-          photoUrl = framePhotosMap.get(f.photoName)!;
-        }
+      frames = data.frames.map((f: any, idx: number) => {
+        const match = resolveFrame(f, idx);
         return {
           ...f,
-          photoUrl,
+          photoUrl: match.photoUrl,
+          photoName: match.photoName || f.photoName,
         };
       });
     }

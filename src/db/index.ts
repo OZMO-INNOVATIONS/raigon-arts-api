@@ -1,5 +1,6 @@
 import { getDbPool, isDbConnected } from './pool.js';
 import { getSupabase, isSupabaseConfigured } from '../config/supabase.js';
+import { config } from '../config/env.js';
 import {
   User,
   WorkshopSettings,
@@ -78,8 +79,8 @@ const store = {
       photoCount: 2,
       photoNames: ['Family_Portrait.jpg', 'Painting.jpg'],
       photoUrls: [
-        'https://cdn.raigonart.com/customers/RA-1001/photos/Family_Portrait.webp',
-        'https://cdn.raigonart.com/customers/RA-1001/photos/Painting.webp',
+        'https://nhqewkbztfmlophtzqmk.supabase.co/storage/v1/object/public/raigon-art-storage/customers/RA-1001/photos/Family_Portrait.webp',
+        'https://nhqewkbztfmlophtzqmk.supabase.co/storage/v1/object/public/raigon-art-storage/customers/RA-1001/photos/Painting.webp',
       ],
       photoSizeLabels: ['2.4 MB', '3.1 MB'],
       frameSize: '12 × 18 inch',
@@ -106,7 +107,7 @@ const store = {
           qty: 2,
           notes: 'Anti-glare acrylic sheet required',
           photoName: 'Family_Portrait.jpg',
-          photoUrl: 'https://cdn.raigonart.com/customers/RA-1001/frames/frame_1.webp',
+          photoUrl: 'https://nhqewkbztfmlophtzqmk.supabase.co/storage/v1/object/public/raigon-art-storage/customers/RA-1001/frames/frame_1.webp',
         },
       ],
       createdAt: new Date(Date.now() - 86400000).toISOString(),
@@ -122,7 +123,7 @@ const store = {
       pincode: '682036',
       photoCount: 1,
       photoNames: ['deepa_art.jpg'],
-      photoUrls: ['https://cdn.raigonart.com/customers/RA-1002/photos/deepa_art.webp'],
+      photoUrls: ['https://nhqewkbztfmlophtzqmk.supabase.co/storage/v1/object/public/raigon-art-storage/customers/RA-1002/photos/deepa_art.webp'],
       photoSizeLabels: ['1.8 MB'],
       frameSize: '8 × 12 inch',
       frameType: 'Minimalist Matte Black',
@@ -148,7 +149,7 @@ const store = {
           qty: 1,
           notes: 'Include white mount 1.5 inch',
           photoName: 'deepa_art.jpg',
-          photoUrl: 'https://cdn.raigonart.com/customers/RA-1002/frames/deepa_art.webp',
+          photoUrl: 'https://nhqewkbztfmlophtzqmk.supabase.co/storage/v1/object/public/raigon-art-storage/customers/RA-1002/frames/deepa_art.webp',
         },
       ],
       createdAt: new Date().toISOString(),
@@ -160,8 +161,8 @@ const store = {
       id: 'p1',
       customer_id: 'RA-1001',
       file_name: 'Family_Portrait.jpg',
-      file_url: 'https://cdn.raigonart.com/customers/RA-1001/photos/Family_Portrait.webp',
-      thumbnail_url: 'https://cdn.raigonart.com/customers/RA-1001/photos/Family_Portrait_thumb.webp',
+      file_url: 'https://nhqewkbztfmlophtzqmk.supabase.co/storage/v1/object/public/raigon-art-storage/customers/RA-1001/photos/Family_Portrait.webp',
+      thumbnail_url: 'https://nhqewkbztfmlophtzqmk.supabase.co/storage/v1/object/public/raigon-art-storage/customers/RA-1001/photos/Family_Portrait.webp',
       file_size_bytes: 2516582,
       mime_type: 'image/webp',
       sort_order: 0,
@@ -171,8 +172,8 @@ const store = {
       id: 'p2',
       customer_id: 'RA-1001',
       file_name: 'Painting.jpg',
-      file_url: 'https://cdn.raigonart.com/customers/RA-1001/photos/Painting.webp',
-      thumbnail_url: 'https://cdn.raigonart.com/customers/RA-1001/photos/Painting_thumb.webp',
+      file_url: 'https://nhqewkbztfmlophtzqmk.supabase.co/storage/v1/object/public/raigon-art-storage/customers/RA-1001/photos/Painting.webp',
+      thumbnail_url: 'https://nhqewkbztfmlophtzqmk.supabase.co/storage/v1/object/public/raigon-art-storage/customers/RA-1001/photos/Painting.webp',
       file_size_bytes: 3250585,
       mime_type: 'image/webp',
       sort_order: 1,
@@ -182,8 +183,8 @@ const store = {
       id: 'p3',
       customer_id: 'RA-1002',
       file_name: 'deepa_art.jpg',
-      file_url: 'https://cdn.raigonart.com/customers/RA-1002/photos/deepa_art.webp',
-      thumbnail_url: 'https://cdn.raigonart.com/customers/RA-1002/photos/deepa_art_thumb.webp',
+      file_url: 'https://nhqewkbztfmlophtzqmk.supabase.co/storage/v1/object/public/raigon-art-storage/customers/RA-1002/photos/deepa_art.webp',
+      thumbnail_url: 'https://nhqewkbztfmlophtzqmk.supabase.co/storage/v1/object/public/raigon-art-storage/customers/RA-1002/photos/deepa_art.webp',
       file_size_bytes: 1887436,
       mime_type: 'image/webp',
       sort_order: 0,
@@ -206,18 +207,32 @@ const store = {
   }>,
 };
 
+function normalizePhotoUrl(url: string | null | undefined): string {
+  if (!url) return '';
+  let clean = url.trim();
+  if (clean.includes('cdn.raigonart.com/')) {
+    clean = clean.replace(
+      'https://cdn.raigonart.com/',
+      'https://nhqewkbztfmlophtzqmk.supabase.co/storage/v1/object/public/raigon-art-storage/'
+    );
+  }
+  if (clean.startsWith('http://') || clean.startsWith('https://')) {
+    return clean;
+  }
+  if (clean.startsWith('/uploads/')) {
+    return `http://localhost:${config.port}${clean}`;
+  }
+  if (clean.startsWith('customers/')) {
+    return `https://nhqewkbztfmlophtzqmk.supabase.co/storage/v1/object/public/raigon-art-storage/${clean}`;
+  }
+  return clean;
+}
+
 function mapDbCustomerToDTO(
   c: any,
   photos: any[] = [],
   frames: any[] = []
 ): CustomerResponseDTO {
-  const photoNames = (photos || []).map((p: any) => p.file_name);
-  const photoUrls = (photos || []).map((p: any) => p.file_url);
-  const photoSizeLabels = (photos || []).map((p: any) => {
-    const mb = ((p.file_size_bytes || 0) / (1024 * 1024)).toFixed(1);
-    return `${mb} MB`;
-  });
-
   const parsedFrames: CustomerFrameDTO[] = (frames || []).map((f: any) => ({
     id: f.id,
     size: f.size || '',
@@ -231,12 +246,31 @@ function mapDbCustomerToDTO(
     qty: f.qty || 1,
     notes: f.notes || '',
     photoName: f.photo_name || undefined,
-    photoUrl: f.photo_url || undefined,
+    photoUrl: normalizePhotoUrl(f.photo_url) || undefined,
   }));
+
+  let photoNames = (photos || []).map((p: any) => p.file_name);
+  let photoUrls = (photos || []).map((p: any) => normalizePhotoUrl(p.file_url)).filter(Boolean);
+  let photoSizeLabels = (photos || []).map((p: any) => {
+    const mb = ((p.file_size_bytes || 0) / (1024 * 1024)).toFixed(1);
+    return `${mb} MB`;
+  });
+
+  // If customer has no photos in customer_photos, but frames have photos, fallback to frame photos
+  if (photoUrls.length === 0 && parsedFrames.length > 0) {
+    for (const f of parsedFrames) {
+      if (f.photoUrl) {
+        photoUrls.push(f.photoUrl);
+        photoNames.push(f.photoName || 'frame_photo.webp');
+        photoSizeLabels.push('High-Res Photo');
+      }
+    }
+  }
 
   const total = Number(c.total) || 0;
   const advance = Number(c.advance) || 0;
   const balance = c.balance !== undefined && c.balance !== null ? Number(c.balance) : total - advance;
+  const photoCount = Math.max(photoNames.length, photoUrls.length, Number(c.photo_count) || 0);
 
   return {
     id: c.id,
@@ -246,7 +280,7 @@ function mapDbCustomerToDTO(
     altPhone: c.alt_phone || '',
     address: c.address || '',
     pincode: c.pincode || '',
-    photoCount: photoNames.length,
+    photoCount,
     photoNames,
     photoUrls,
     photoSizeLabels,
