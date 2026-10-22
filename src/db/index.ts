@@ -337,12 +337,20 @@ export const db = {
     async updateLastLogin(id: string): Promise<void> {
       const now = new Date().toISOString();
       const pool = getDbPool();
-      if (pool && isDbConnected()) {
+      if (pool) {
         try {
           await pool.query('UPDATE users SET last_login_at = $1 WHERE id = $2', [now, id]);
-          return;
         } catch (e) {
           logger.error('Error updating last login:', e);
+        }
+      }
+
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase();
+          await sb.from('users').update({ last_login_at: now }).eq('id', id);
+        } catch (e) {
+          logger.error('Error updating last login in Supabase:', e);
         }
       }
 
@@ -351,32 +359,90 @@ export const db = {
     },
 
     async updatePassword(phone: string, newPasswordHash: string): Promise<boolean> {
+      let updatedInDb = false;
+
       const pool = getDbPool();
-      if (pool && isDbConnected()) {
+      if (pool) {
         try {
           const res = await pool.query(
-            'UPDATE users SET password_hash = $1, updated_at = NOW() WHERE phone = $2 RETURNING id',
-            [newPasswordHash, phone]
+            `UPDATE users SET password_hash = $1, updated_at = NOW()
+             WHERE phone = $2 OR phone = $3 OR phone = $4 OR email = $2
+             RETURNING id`,
+            [newPasswordHash, phone, `+91${phone}`, `91${phone}`]
           );
-          return (res.rowCount ?? 0) > 0;
+          if ((res.rowCount ?? 0) > 0) {
+            updatedInDb = true;
+          }
         } catch (e) {
-          logger.error('Error updating password in DB:', e);
+          logger.error('Error updating password in DB pool:', e);
         }
       }
 
-      const u = store.users.find((user) => user.phone === phone);
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase();
+          const { data: userMatches } = await sb
+            .from('users')
+            .select('id, phone')
+            .or(`phone.eq.${phone},phone.eq.+91${phone},phone.eq.91${phone},email.eq.${phone}`);
+
+          if (userMatches && userMatches.length > 0) {
+            const userIds = userMatches.map((u: any) => u.id);
+            const { error: sbUpdateErr } = await sb
+              .from('users')
+              .update({
+                password_hash: newPasswordHash,
+                updated_at: new Date().toISOString(),
+              })
+              .in('id', userIds);
+
+            if (!sbUpdateErr) {
+              updatedInDb = true;
+            } else {
+              logger.error('Error updating password in Supabase:', sbUpdateErr);
+            }
+          }
+        } catch (e) {
+          logger.error('Supabase updatePassword exception:', e);
+        }
+      }
+
+      const u = store.users.find(
+        (user) =>
+          user.phone === phone ||
+          user.phone === `+91${phone}` ||
+          user.phone.replace(/\D/g, '') === phone.replace(/\D/g, '') ||
+          user.email.toLowerCase() === phone.toLowerCase()
+      );
       if (u) {
         u.password_hash = newPasswordHash;
         u.updated_at = new Date().toISOString();
         return true;
       }
-      return false;
+
+      return updatedInDb;
     },
   },
 
   // --- OTP MANAGEMENT ---
   otp: {
     async saveOtp(phone: string, otp: string, expiresAt: Date): Promise<void> {
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase();
+          await sb.from('otp_tokens').delete().eq('phone', phone);
+          const { error } = await sb.from('otp_tokens').insert({
+            phone,
+            otp_code: otp,
+            is_verified: false,
+            expires_at: expiresAt.toISOString(),
+          });
+          if (error) logger.error('Error saving OTP to Supabase:', error);
+        } catch (e) {
+          logger.error('Supabase saveOtp exception:', e);
+        }
+      }
+
       store.otpTokens = store.otpTokens.filter((item) => item.phone !== phone);
       store.otpTokens.push({
         phone,
@@ -387,17 +453,63 @@ export const db = {
     },
 
     async verifyOtp(phone: string, otp: string, resetToken: string): Promise<boolean> {
+      let sbVerified = false;
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase();
+          const { data, error } = await sb
+            .from('otp_tokens')
+            .select('*')
+            .eq('phone', phone)
+            .eq('otp_code', otp)
+            .gt('expires_at', new Date().toISOString())
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (!error && data) {
+            await sb
+              .from('otp_tokens')
+              .update({ is_verified: true, reset_token: resetToken })
+              .eq('id', data.id);
+            sbVerified = true;
+          }
+        } catch (e) {
+          logger.error('Supabase verifyOtp exception:', e);
+        }
+      }
+
       const record = store.otpTokens.find(
         (item) => item.phone === phone && item.otp === otp && item.expiresAt > new Date()
       );
-      if (!record) return false;
+      if (record) {
+        record.isVerified = true;
+        record.resetToken = resetToken;
+        return true;
+      }
 
-      record.isVerified = true;
-      record.resetToken = resetToken;
-      return true;
+      return sbVerified;
     },
 
     async validateResetToken(phone: string, resetToken: string): Promise<boolean> {
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase();
+          const { data, error } = await sb
+            .from('otp_tokens')
+            .select('id')
+            .eq('phone', phone)
+            .eq('reset_token', resetToken)
+            .eq('is_verified', true)
+            .gt('expires_at', new Date().toISOString())
+            .maybeSingle();
+
+          if (!error && data) return true;
+        } catch (e) {
+          logger.error('Supabase validateResetToken exception:', e);
+        }
+      }
+
       const record = store.otpTokens.find(
         (item) =>
           item.phone === phone &&
@@ -409,6 +521,15 @@ export const db = {
     },
 
     async consumeResetToken(phone: string): Promise<void> {
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase();
+          await sb.from('otp_tokens').delete().eq('phone', phone);
+        } catch (e) {
+          logger.error('Supabase consumeResetToken exception:', e);
+        }
+      }
+
       store.otpTokens = store.otpTokens.filter((item) => item.phone !== phone);
     },
   },
@@ -479,16 +600,16 @@ export const db = {
       if (isSupabaseConfigured()) {
         try {
           const sb = getSupabase();
-          const { data } = await sb
+          const { data, error } = await sb
             .from('workshop_settings')
-            .update({
+            .upsert({
+              id: 'default',
               ...updates,
               updated_at: new Date().toISOString(),
             })
-            .eq('id', 'default')
             .select()
             .maybeSingle();
-          if (data) return data as WorkshopSettings;
+          if (!error && data) return data as WorkshopSettings;
         } catch (e) {
           logger.error('Error updating workshop settings in Supabase:', e);
         }
@@ -665,16 +786,15 @@ export const db = {
   customers: {
     async getNextId(): Promise<string> {
       const pool = getDbPool();
-      if (pool && isDbConnected()) {
+      if (pool) {
         try {
           const res = await pool.query(
-            `SELECT id FROM customers WHERE id ~ '^RA-[0-9]+$' ORDER BY CAST(SUBSTRING(id FROM 4) AS INTEGER) DESC LIMIT 1`
+            `SELECT id FROM customers WHERE id ~* '^RA-[0-9]+$' ORDER BY CAST(SUBSTRING(id FROM 4) AS INTEGER) DESC LIMIT 1`
           );
           if (res.rows[0]) {
-            const lastNum = parseInt(res.rows[0].id.replace('RA-', ''), 10);
+            const lastNum = parseInt(res.rows[0].id.replace(/RA-/i, ''), 10);
             return `RA-${lastNum + 1}`;
           }
-          return 'RA-1001';
         } catch (e) {
           logger.error('Error querying next ID from DB:', e);
         }
@@ -686,13 +806,12 @@ export const db = {
           const { data, error } = await sb
             .from('customers')
             .select('id')
-            .order('id', { ascending: false })
-            .limit(100);
+            .limit(10000);
 
           if (!error && data && data.length > 0) {
             const ids = data
               .map((c: any) => {
-                const match = c.id?.match(/^RA-(\d+)$/);
+                const match = c.id?.match(/^RA-(\d+)$/i);
                 return match ? parseInt(match[1], 10) : 0;
               })
               .filter((n: number) => !isNaN(n) && n > 0);
@@ -708,8 +827,11 @@ export const db = {
 
       // Memory fallback
       const ids = store.customers
-        .map((c) => parseInt(c.id.replace('RA-', ''), 10))
-        .filter((n) => !isNaN(n));
+        .map((c) => {
+          const match = c.id?.match(/^RA-(\d+)$/i);
+          return match ? parseInt(match[1], 10) : 0;
+        })
+        .filter((n) => !isNaN(n) && n > 0);
       const max = ids.length ? Math.max(...ids) : 1000;
       return `RA-${max + 1}`;
     },
@@ -762,7 +884,7 @@ export const db = {
           query = query.range(offset, offset + limit - 1);
 
           const { data, count, error } = await query;
-          if (!error && data && (data.length > 0 || store.customers.length === 0)) {
+          if (!error && data) {
             const { data: allCusts } = await sb.from('customers').select('status');
             const statuses = allCusts || [];
             const statusCounts = {
@@ -1060,23 +1182,132 @@ export const db = {
       newPhotos?: Array<{ name: string; url: string; thumbnailUrl?: string; sizeBytes: number; mimeType: string }>,
       newFrames?: CustomerFrameDTO[]
     ): Promise<CustomerResponseDTO | null> {
-      const idx = store.customers.findIndex((c) => c.id.toLowerCase() === id.toLowerCase());
-      const current = idx !== -1 ? store.customers[idx] : null;
-
-      const total = updates.total !== undefined ? Number(updates.total) : current?.total || 0;
-      const advance = updates.advance !== undefined ? Number(updates.advance) : current?.advance || 0;
-      const balance = total - advance;
-
-      let paymentStatus = updates.paymentStatus || current?.paymentStatus || 'Unpaid';
-      if (updates.advance !== undefined || updates.total !== undefined) {
-        if (advance >= total && total > 0) paymentStatus = 'Paid';
-        else if (advance > 0) paymentStatus = 'Partial';
-        else paymentStatus = 'Unpaid';
+      // 1. Fetch current customer state (checks Supabase, then memory)
+      const current = await this.findById(id);
+      if (!current) {
+        return null;
       }
 
-      let photoNames = current ? [...current.photoNames] : [];
-      let photoUrls = current ? [...current.photoUrls] : [];
-      let photoSizeLabels = current ? [...current.photoSizeLabels] : [];
+      const total = updates.total !== undefined ? Number(updates.total) : current.total;
+      const advance = updates.advance !== undefined ? Number(updates.advance) : current.advance;
+      const balance = total - advance;
+
+      let paymentStatus: PaymentStatus = updates.paymentStatus || current.paymentStatus;
+      if (updates.advance !== undefined || updates.total !== undefined) {
+        if (!updates.paymentStatus) {
+          if (advance >= total && total > 0) paymentStatus = 'Paid';
+          else if (advance > 0) paymentStatus = 'Partial';
+          else paymentStatus = 'Unpaid';
+        }
+      }
+
+      let frameSizeSummary = updates.frameSize || current.frameSize;
+      let frameTypeSummary = updates.frameType || current.frameType;
+      let qty = updates.qty !== undefined ? Number(updates.qty) : current.qty;
+
+      if (newFrames && Array.isArray(newFrames) && newFrames.length > 0) {
+        const sizes = newFrames.map((f) => f.size).filter(Boolean);
+        const types = newFrames.map((f) => f.frameType || f.material).filter(Boolean);
+        if (!updates.frameSize && sizes.length > 0) frameSizeSummary = sizes.join(', ');
+        if (!updates.frameType && types.length > 0) frameTypeSummary = types.join(', ');
+        if (updates.qty === undefined) qty = newFrames.reduce((acc, f) => acc + (f.qty || 1), 0);
+      }
+
+      // 2. Persist update directly to Supabase
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase();
+          const dbUpdates: any = {
+            updated_at: new Date().toISOString(),
+          };
+          if (updates.name !== undefined) dbUpdates.name = updates.name;
+          if (updates.city !== undefined) dbUpdates.city = updates.city;
+          if (updates.phone !== undefined) dbUpdates.phone = updates.phone;
+          if (updates.altPhone !== undefined) dbUpdates.alt_phone = updates.altPhone;
+          if (updates.address !== undefined) dbUpdates.address = updates.address;
+          if (updates.pincode !== undefined) dbUpdates.pincode = updates.pincode;
+          if (updates.total !== undefined) dbUpdates.total = Number(updates.total);
+          if (updates.advance !== undefined) dbUpdates.advance = Number(updates.advance);
+          if (paymentStatus !== undefined) dbUpdates.payment_status = paymentStatus;
+          if (updates.status !== undefined) dbUpdates.status = updates.status;
+          dbUpdates.frame_size_summary = frameSizeSummary;
+          dbUpdates.frame_type_summary = frameTypeSummary;
+          dbUpdates.qty = qty;
+          if (updates.orderDate !== undefined) dbUpdates.order_date = updates.orderDate.slice(0, 10);
+          if (updates.expectedDelivery !== undefined) {
+            dbUpdates.expected_delivery = updates.expectedDelivery ? updates.expectedDelivery.slice(0, 10) : null;
+          }
+
+          const { error: updateErr } = await sb
+            .from('customers')
+            .update(dbUpdates)
+            .or(`id.eq.${id},id.ilike.${id}`);
+
+          if (updateErr) {
+            logger.error('Error updating customer row in Supabase:', updateErr);
+          }
+
+          if (newPhotos && newPhotos.length > 0) {
+            const currentPhotoCount = current.photoCount || 0;
+            const photoInserts = newPhotos.map((p, pIdx) => ({
+              customer_id: id,
+              file_name: p.name,
+              file_url: p.url,
+              thumbnail_url: p.thumbnailUrl || null,
+              file_size_bytes: p.sizeBytes,
+              mime_type: p.mimeType,
+              sort_order: currentPhotoCount + pIdx,
+            }));
+            const { error: photoErr } = await sb.from('customer_photos').insert(photoInserts);
+            if (photoErr) logger.error('Error inserting customer photos into Supabase:', photoErr);
+          }
+
+          if (newFrames && Array.isArray(newFrames) && newFrames.length > 0) {
+            await sb.from('customer_frames').delete().or(`customer_id.eq.${id},customer_id.ilike.${id}`);
+            const frameInserts = newFrames.map((f) => ({
+              customer_id: id,
+              size: f.size,
+              unit: f.unit || 'Inch',
+              custom_width: f.customWidth || '',
+              custom_height: f.customHeight || '',
+              frame_type: f.frameType || '',
+              material: f.material || '',
+              finish: f.finish || '',
+              orientation: f.orientation || '',
+              qty: f.qty || 1,
+              notes: f.notes || '',
+              photo_name: f.photoName || null,
+              photo_url: f.photoUrl || null,
+            }));
+            const { error: frameErr } = await sb.from('customer_frames').insert(frameInserts);
+            if (frameErr) logger.error('Error inserting customer frames into Supabase:', frameErr);
+          }
+
+          await sb.from('activity_logs').insert({
+            customer_id: id,
+            action: 'UPDATED',
+            details: { updates: Object.keys(updates) },
+          });
+
+          const refreshed = await this.findById(id);
+          if (refreshed) {
+            const memIdx = store.customers.findIndex((c) => c.id.toLowerCase() === id.toLowerCase());
+            if (memIdx !== -1) {
+              store.customers[memIdx] = refreshed;
+            } else {
+              store.customers.unshift(refreshed);
+            }
+            return refreshed;
+          }
+        } catch (e) {
+          logger.error('Supabase updateCustomer exception:', e);
+        }
+      }
+
+      // 3. Keep in-memory store synchronized
+      let photoNames = [...current.photoNames];
+      let photoUrls = [...current.photoUrls];
+      let photoSizeLabels = [...current.photoSizeLabels];
 
       if (newPhotos && newPhotos.length > 0) {
         newPhotos.forEach((p, pIdx) => {
@@ -1099,120 +1330,49 @@ export const db = {
         });
       }
 
-      // Update Supabase
-      if (isSupabaseConfigured()) {
-        try {
-          const sb = getSupabase();
-          const dbUpdates: any = {
-            updated_at: new Date().toISOString(),
-          };
-          if (updates.name !== undefined) dbUpdates.name = updates.name;
-          if (updates.city !== undefined) dbUpdates.city = updates.city;
-          if (updates.phone !== undefined) dbUpdates.phone = updates.phone;
-          if (updates.altPhone !== undefined) dbUpdates.alt_phone = updates.altPhone;
-          if (updates.address !== undefined) dbUpdates.address = updates.address;
-          if (updates.pincode !== undefined) dbUpdates.pincode = updates.pincode;
-          if (updates.total !== undefined) dbUpdates.total = Number(updates.total);
-          if (updates.advance !== undefined) dbUpdates.advance = Number(updates.advance);
-          if (paymentStatus !== undefined) dbUpdates.payment_status = paymentStatus;
-          if (updates.status !== undefined) dbUpdates.status = updates.status;
-          if (updates.frameSize !== undefined) dbUpdates.frame_size_summary = updates.frameSize;
-          if (updates.frameType !== undefined) dbUpdates.frame_type_summary = updates.frameType;
-          if (updates.qty !== undefined) dbUpdates.qty = updates.qty;
-          if (updates.orderDate !== undefined) dbUpdates.order_date = updates.orderDate.slice(0, 10);
-          if (updates.expectedDelivery !== undefined) {
-            dbUpdates.expected_delivery = updates.expectedDelivery ? updates.expectedDelivery.slice(0, 10) : null;
-          }
-
-          await sb.from('customers').update(dbUpdates).ilike('id', id);
-
-          if (newPhotos && newPhotos.length > 0) {
-            const photoInserts = newPhotos.map((p, pIdx) => ({
-              customer_id: id,
-              file_name: p.name,
-              file_url: p.url,
-              thumbnail_url: p.thumbnailUrl || null,
-              file_size_bytes: p.sizeBytes,
-              mime_type: p.mimeType,
-              sort_order: photoNames.length + pIdx,
-            }));
-            await sb.from('customer_photos').insert(photoInserts);
-          }
-
-          if (newFrames && newFrames.length > 0) {
-            await sb.from('customer_frames').delete().ilike('customer_id', id);
-            const frameInserts = newFrames.map((f) => ({
-              customer_id: id,
-              size: f.size,
-              unit: f.unit || 'Inch',
-              custom_width: f.customWidth || '',
-              custom_height: f.customHeight || '',
-              frame_type: f.frameType || '',
-              material: f.material || '',
-              finish: f.finish || '',
-              orientation: f.orientation || '',
-              qty: f.qty || 1,
-              notes: f.notes || '',
-              photo_name: f.photoName || null,
-              photo_url: f.photoUrl || null,
-            }));
-            await sb.from('customer_frames').insert(frameInserts);
-          }
-
-          await sb.from('activity_logs').insert({
-            customer_id: id,
-            action: 'UPDATED',
-            details: { updates: Object.keys(updates) },
-          });
-        } catch (e) {
-          logger.error('Supabase updateCustomer exception:', e);
-        }
-      }
-
-      if (idx === -1) {
-        return null;
-      }
-
-      const updated: CustomerResponseDTO = {
-        ...current!,
+      const updatedDTO: CustomerResponseDTO = {
+        ...current,
         ...updates,
+        frameSize: frameSizeSummary,
+        frameType: frameTypeSummary,
+        qty,
         total,
         advance,
         balance,
         paymentStatus,
+        status: updates.status || current.status,
         photoCount: photoNames.length,
         photoNames,
         photoUrls,
         photoSizeLabels,
-        frames: newFrames && newFrames.length > 0 ? newFrames : current!.frames,
+        frames: newFrames && newFrames.length > 0 ? newFrames : current.frames,
         updatedAt: new Date().toISOString(),
       };
 
-      store.customers[idx] = updated;
-      return updated;
+      const memIdx = store.customers.findIndex((c) => c.id.toLowerCase() === id.toLowerCase());
+      if (memIdx !== -1) {
+        store.customers[memIdx] = updatedDTO;
+      } else {
+        store.customers.unshift(updatedDTO);
+      }
+
+      return updatedDTO;
     },
 
     async updateStatus(id: string, status: OrderStatus): Promise<CustomerResponseDTO | null> {
       if (isSupabaseConfigured()) {
         try {
           const sb = getSupabase();
-          await sb
-            .from('customers')
-            .update({ status, updated_at: new Date().toISOString() })
-            .ilike('id', id);
-
           await sb.from('activity_logs').insert({
             customer_id: id,
             action: 'STATUS_CHANGE',
             details: { status },
           });
         } catch (e) {
-          logger.error('Error updating status in Supabase:', e);
+          logger.error('Error logging status change in Supabase:', e);
         }
       }
 
-      const customer = await this.findById(id);
-      if (!customer) return null;
       return this.updateCustomer(id, { status });
     },
 
@@ -1224,23 +1384,16 @@ export const db = {
       if (isSupabaseConfigured()) {
         try {
           const sb = getSupabase();
-          await sb
-            .from('customers')
-            .update({ advance, payment_status: paymentStatus, updated_at: new Date().toISOString() })
-            .ilike('id', id);
-
           await sb.from('activity_logs').insert({
             customer_id: id,
             action: 'PAYMENT_RECEIVED',
             details: { advance, paymentStatus },
           });
         } catch (e) {
-          logger.error('Error updating payment in Supabase:', e);
+          logger.error('Error logging payment received in Supabase:', e);
         }
       }
 
-      const customer = await this.findById(id);
-      if (!customer) return null;
       return this.updateCustomer(id, { advance, paymentStatus });
     },
 
@@ -1276,12 +1429,16 @@ export const db = {
       if (isSupabaseConfigured()) {
         try {
           const sb = getSupabase();
-          const { error } = await sb
-            .from('customer_photos')
-            .delete()
-            .ilike('customer_id', customerId)
-            .or(`id.eq.${photoId},file_name.eq.${photoId}`);
+          const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(photoId);
+          let query = sb.from('customer_photos').delete().or(`customer_id.eq.${customerId},customer_id.ilike.${customerId}`);
+          if (isUuid) {
+            query = query.eq('id', photoId);
+          } else {
+            query = query.or(`file_name.eq.${photoId},file_url.ilike.%${photoId}%`);
+          }
+          const { error } = await query;
           if (!error) supabaseDeleted = true;
+          else logger.error('Error deleting photo from Supabase:', error);
         } catch (e) {
           logger.error('Error deleting photo from Supabase:', e);
         }
@@ -1290,7 +1447,7 @@ export const db = {
       const photoIdx = store.customerPhotos.findIndex(
         (p) =>
           p.customer_id.toLowerCase() === customerId.toLowerCase() &&
-          (p.id === photoId || p.file_name === photoId)
+          (p.id === photoId || p.file_name === photoId || p.file_url.includes(photoId))
       );
 
       if (photoIdx !== -1) {
@@ -1307,6 +1464,7 @@ export const db = {
         }
         return true;
       }
+
       return supabaseDeleted;
     },
 

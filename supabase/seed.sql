@@ -11,11 +11,11 @@ VALUES (
     'Raigon Admin',
     'admin@gmail.com',
     '8137922114',
-    '$2a$10$Q4Q2j/aT1b/1aZJbN06ahe4rD4Uo3E1z8wZJ9Z8lB9yX9Z8lB9yX9',
+    '$2b$10$9QdpQDHgG2OcG/v.7/xMR.42yfWbni9XdsZdT743oty.bieosbvn.',
     'admin',
     true
 )
-ON CONFLICT (email) DO NOTHING;
+ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash;
 
 -- 2. Insert Workshop Profile / Settings
 INSERT INTO workshop_settings (

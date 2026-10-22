@@ -103,7 +103,8 @@ export class CustomerService {
   static async update(
     id: string,
     rawCustomerData: any,
-    uploadedPhotos: Express.Multer.File[] = []
+    uploadedPhotos: Express.Multer.File[] = [],
+    uploadedFramePhotos: Express.Multer.File[] = []
   ) {
     let data = rawCustomerData;
     if (typeof rawCustomerData === 'string') {
@@ -114,6 +115,7 @@ export class CustomerService {
       }
     }
 
+    // 1. Process customer vault photos if newly uploaded
     const processedPhotos: Array<{
       name: string;
       url: string;
@@ -123,20 +125,53 @@ export class CustomerService {
     }> = [];
 
     for (const file of uploadedPhotos) {
-      const uploaded = await StorageService.processAndUploadPhoto(
-        `customers/${id}`,
-        file
-      );
-      processedPhotos.push({
-        name: uploaded.fileName,
-        url: uploaded.fileUrl,
-        thumbnailUrl: uploaded.thumbnailUrl,
-        sizeBytes: uploaded.sizeBytes,
-        mimeType: uploaded.mimeType,
+      try {
+        const uploaded = await StorageService.processAndUploadPhoto(
+          `customers/${id}`,
+          file
+        );
+        processedPhotos.push({
+          name: uploaded.fileName,
+          url: uploaded.fileUrl,
+          thumbnailUrl: uploaded.thumbnailUrl,
+          sizeBytes: uploaded.sizeBytes,
+          mimeType: uploaded.mimeType,
+        });
+      } catch (e) {
+        logger.error(`Error uploading photo ${file.originalname}:`, e);
+      }
+    }
+
+    // 2. Process frame individual photos if newly uploaded
+    const framePhotosMap = new Map<string, string>();
+    for (const file of uploadedFramePhotos) {
+      try {
+        const uploaded = await StorageService.processAndUploadPhoto(
+          `customers/${id}/frames`,
+          file
+        );
+        framePhotosMap.set(file.originalname, uploaded.fileUrl);
+      } catch (e) {
+        logger.error(`Error uploading frame photo ${file.originalname}:`, e);
+      }
+    }
+
+    // 3. Assemble frames if provided
+    let frames: CustomerFrameDTO[] | undefined = undefined;
+    if (data.frames && Array.isArray(data.frames)) {
+      frames = data.frames.map((f: any) => {
+        let photoUrl = f.photoUrl || '';
+        if (f.photoName && framePhotosMap.has(f.photoName)) {
+          photoUrl = framePhotosMap.get(f.photoName)!;
+        }
+        return {
+          ...f,
+          photoUrl,
+        };
       });
     }
 
-    const updated = await db.customers.updateCustomer(id, data, processedPhotos, data.frames);
+    const updated = await db.customers.updateCustomer(id, data, processedPhotos, frames);
     if (!updated) {
       throw { status: 404, message: `Customer ${id} not found to update.` };
     }
@@ -201,6 +236,21 @@ export class CustomerService {
   }
 
   static async deletePhoto(id: string, photoId: string) {
+    const customer = await db.customers.findById(id);
+    if (customer && customer.photoUrls) {
+      const urlToDelete = customer.photoUrls.find((u, idx) => {
+        const name = customer.photoNames[idx];
+        return name === photoId || u.includes(photoId);
+      });
+      if (urlToDelete) {
+        try {
+          await StorageService.deleteFile(urlToDelete);
+        } catch (e) {
+          logger.error(`Error deleting file ${urlToDelete} from storage:`, e);
+        }
+      }
+    }
+
     const deleted = await db.customers.deletePhoto(id, photoId);
     if (!deleted) {
       throw { status: 404, message: 'Photo not found for customer.' };

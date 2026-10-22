@@ -219,6 +219,21 @@ async function runTests() {
     return res.status === 200 && json.data?.id === testCustomerId;
   });
 
+  // 15b. Customers: Update Customer (PUT)
+  await assertReq('15b. PUT /api/v1/customers/:id', async () => {
+    const res = await fetch(`${baseUrl}/api/v1/customers/${testCustomerId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Automated Test Customer Updated',
+        city: 'Kollam City Center',
+        advance: 3000,
+      }),
+    });
+    const json: any = await res.json();
+    return res.status === 200 && json.data?.name === 'Automated Test Customer Updated' && json.data?.advance === 3000;
+  });
+
   // 16. Customers: Quick Status Change
   await assertReq('16. PATCH /api/v1/customers/:id/status', async () => {
     const res = await fetch(`${baseUrl}/api/v1/customers/${testCustomerId}/status`, {

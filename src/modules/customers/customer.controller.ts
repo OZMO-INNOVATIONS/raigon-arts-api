@@ -63,9 +63,10 @@ export class CustomerController {
       const id = req.params.id as string;
       const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
       const uploadedPhotos = files?.['photos'] || [];
+      const uploadedFramePhotos = files?.['frame_photos'] || [];
       const rawData = req.body.customerData || req.body;
 
-      const customer = await CustomerService.update(id, rawData, uploadedPhotos);
+      const customer = await CustomerService.update(id, rawData, uploadedPhotos, uploadedFramePhotos);
 
       res.status(200).json({
         success: true,
