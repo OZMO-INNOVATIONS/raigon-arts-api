@@ -12,9 +12,12 @@ export class FrameSizeService {
       category: size.category,
       orders: size.orders_count,
       ordersCount: size.orders_count,
+      orders_count: size.orders_count,
       active: size.is_active,
       isActive: size.is_active,
+      is_active: size.is_active,
       sortOrder: size.sort_order,
+      sort_order: size.sort_order,
     };
   }
 
