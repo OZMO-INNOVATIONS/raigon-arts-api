@@ -216,8 +216,8 @@ Retrieves a paginated list of customers along with live status breakdowns.
   * `search` *(string)*: Searches Customer ID (e.g., `RA-1001`), Name, or Phone.
   * `status` *(string)*: `pending`, `inProgress`, `completed`, `cancelled`.
   * `paymentStatus` *(string)*: `Unpaid`, `Partial`, `Paid`.
-  * `startDate` *(ISO 8601 string)*: Filter orders on or after this date.
-  * `endDate` *(ISO 8601 string)*: Filter orders on or before this date.
+  * `startDate` *(string, `YYYY-MM-DD` or ISO 8601)*: Filter orders on or after this date (`00:00:00.000Z`).
+  * `endDate` *(string, `YYYY-MM-DD` or ISO 8601)*: Filter orders on or before this date. Date strings (e.g. `2026-10-23`) automatically include the full day up to `23:59:59.999Z` so orders placed on the current day are not truncated.
   * `page` *(number, default: 1)*
   * `limit` *(number, default: 10)*
   * `sortBy` *(string, default: "orderDate")*
@@ -552,9 +552,16 @@ Uploads any single image, converts it to WebP, generates a 300px thumbnail, and 
 ## 5. Module 4: Frame Sizes Master Catalog
 
 ### 4.1 List Frame Sizes
+Retrieves all master frame sizes. The `orders` and `ordersCount` fields are **dynamically aggregated in real-time** from active customer orders (`customers` and `customer_frames`), matching size codes, labels, and dimensions.
+
 * **Method:** `GET`
 * **URL:** `/api/v1/frame-sizes`
 * **Query Parameters:** `activeOnly=true|false`
+* **Order Count Rules:**
+  * Excludes cancelled orders (`status !== 'cancelled'`).
+  * Deduplicates multiple frame items in the same order (each order is counted at most once per frame size).
+  * Returns `0` when no orders match (no dummy or hardcoded seed values).
+  * Automatically synced when orders are created, updated, status changed, or deleted.
 * **Response (200 OK):**
 ```json
 {
@@ -567,9 +574,24 @@ Uploads any single image, converts it to WebP, generates a 300px thumbnail, and 
       "height": 6.0,
       "unit": "Inch",
       "category": "Standard",
-      "orders": 14,
+      "orders": 1,
+      "ordersCount": 1,
       "active": true,
+      "isActive": true,
       "sortOrder": 1
+    },
+    {
+      "code": "FS-03",
+      "name": "6 × 8 inch",
+      "width": 6.0,
+      "height": 8.0,
+      "unit": "Inch",
+      "category": "Standard",
+      "orders": 0,
+      "ordersCount": 0,
+      "active": true,
+      "isActive": true,
+      "sortOrder": 3
     },
     {
       "code": "FS-08",
@@ -578,8 +600,10 @@ Uploads any single image, converts it to WebP, generates a 300px thumbnail, and 
       "height": 18.0,
       "unit": "Inch",
       "category": "Standard",
-      "orders": 65,
+      "orders": 1,
+      "ordersCount": 1,
       "active": true,
+      "isActive": true,
       "sortOrder": 8
     }
   ]
@@ -678,38 +702,85 @@ Fetches real-time counts, revenue, outstanding balances, and recent orders.
 ## 7. Module 6: Reports & Exports
 
 ### 6.1 Revenue & Sales Report
-Calculates order velocity, revenue, and top-selling frame sizes for a given period.
+Calculates order velocity, revenue, top-selling frame sizes, status breakdowns, and a time-series **Sales Trajectory** through the current date.
 
 * **Method:** `GET`
 * **URL:** `/api/v1/reports/summary`
-* **Query Parameters:** `period=month1|month2|allTime`
+* **Query Parameters:**
+  * `period` *(string, optional, default: `"month1"`)*:
+    * `month1`: Last 30 Days (window spanning from 29 days prior through current date `today`).
+    * `month2`: Last 60 Days (window spanning from 59 days prior through current date `today`).
+    * `allTime`: All-time historical metrics.
+* **Business Rules:**
+  * Billable metrics (`orderCount`, `grossSales`, `advanceCollected`, `outstandingBalance`, `topSellingSizes`) and `salesTrajectory` strictly exclude cancelled orders (`status !== 'cancelled'`).
+  * `statusBreakdown` tracks all orders in the window, including `cancelled`.
+  * `salesTrajectory.labels` dynamically include date checkpoints terminating on the current date (`today`). For `month1` (30 days), 7 dynamic checkpoints (e.g. `['Sep 24', 'Sep 29', 'Oct 04', 'Oct 09', 'Oct 14', 'Oct 19', 'Oct 23']`).
+  * `salesTrajectory.dailyData` provides a continuous day-by-day series for every single day in the period, cleanly setting days with no orders to `revenue: 0` and `orderCount: 0`.
 * **Response (200 OK):**
 ```json
 {
   "success": true,
   "data": {
     "period": "month1",
-    "orderCount": 42,
-    "grossSales": 164000,
-    "advanceCollected": 128000,
-    "outstandingBalance": 36000,
+    "orderCount": 7,
+    "grossSales": 107700,
+    "advanceCollected": 25200,
+    "outstandingBalance": 82500,
     "topSellingSizes": [
       {
-        "size": "12 × 18 inch",
-        "count": 18,
-        "revenue": 63000
+        "size": "5 × 7 inch",
+        "count": 1,
+        "revenue": 50000
       },
       {
-        "size": "8 × 10 inch",
-        "count": 14,
-        "revenue": 39200
+        "size": "4 × 6 inch",
+        "count": 1,
+        "revenue": 50000
+      },
+      {
+        "size": "12 × 18 inch",
+        "count": 2,
+        "revenue": 4500
+      },
+      {
+        "size": "8 × 12 inch",
+        "count": 1,
+        "revenue": 3200
       }
     ],
     "statusBreakdown": {
-      "completed": 28,
-      "inProgress": 10,
-      "pending": 4,
+      "completed": 1,
+      "inProgress": 5,
+      "pending": 1,
       "cancelled": 0
+    },
+    "salesTrajectory": {
+      "startDate": "2026-09-24",
+      "endDate": "2026-10-23",
+      "labels": [
+        "Sep 24",
+        "Sep 29",
+        "Oct 04",
+        "Oct 09",
+        "Oct 14",
+        "Oct 19",
+        "Oct 23"
+      ],
+      "values": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        107700
+      ],
+      "dailyData": [
+        { "date": "2026-09-24", "revenue": 0, "orderCount": 0 },
+        { "date": "2026-10-21", "revenue": 4500, "orderCount": 1 },
+        { "date": "2026-10-22", "revenue": 103200, "orderCount": 6 },
+        { "date": "2026-10-23", "revenue": 0, "orderCount": 0 }
+      ]
     }
   }
 }
