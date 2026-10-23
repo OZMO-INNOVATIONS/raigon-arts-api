@@ -314,54 +314,77 @@ function normalizeSizeString(s: string | undefined | null): string {
     .trim();
 }
 
+function extractDimensions(s: string | undefined | null): Array<[number, number]> {
+  if (!s) return [];
+  const norm = normalizeSizeString(s);
+  const regex = /(\d+(?:\.\d+)?)\s*(?:[×*]|\s+by\s+)\s*(\d+(?:\.\d+)?)/gi;
+  const results: Array<[number, number]> = [];
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(norm)) !== null) {
+    results.push([Number(match[1]), Number(match[2])]);
+  }
+  return results;
+}
+
 function matchesFrameSize(size: FrameSizeMaster, customer: any): boolean {
   if (customer.status === 'cancelled') return false;
 
-  const sCode = normalizeSizeString(size.code);
-  const sName = normalizeSizeString(size.name);
   const w = Number(size.width);
   const h = Number(size.height);
-  const sDim = `${w} × ${h}`;
-  const sDimRev = `${h} × ${w}`;
+  const sCode = normalizeSizeString(size.code);
+  const sName = normalizeSizeString(size.name);
 
-  // Check customer level summary
-  const summary = normalizeSizeString(customer.frame_size_summary || customer.frameSize);
-  if (summary && summary !== 'standard') {
-    if (
-      summary === sCode ||
-      summary === sName ||
-      summary.includes(sDim) ||
-      summary.includes(sDimRev) ||
-      sName.includes(summary)
-    ) {
-      return true;
-    }
-  }
-
-  // Check individual frames
+  // 1. Check individual customer frames
   const frames = customer.customer_frames || customer.frames || [];
   for (const f of frames) {
-    const fSize = normalizeSizeString(f.size);
-    if (fSize && fSize !== 'standard') {
-      if (
-        fSize === sCode ||
-        fSize === sName ||
-        fSize.includes(sDim) ||
-        fSize.includes(sDimRev) ||
-        sName.includes(fSize)
-      ) {
-        return true;
-      }
-    }
-
     const cw = Number(f.custom_width ?? f.customWidth);
     const ch = Number(f.custom_height ?? f.customHeight);
     if (cw && ch && ((cw === w && ch === h) || (cw === h && ch === w))) {
       return true;
     }
+
+    const fSize = normalizeSizeString(f.size);
+    if (fSize && fSize !== 'standard') {
+      if (fSize === sCode || fSize === sName) return true;
+      const dims = extractDimensions(fSize);
+      for (const [dw, dh] of dims) {
+        if ((dw === w && dh === h) || (dw === h && dh === w)) return true;
+      }
+    }
+  }
+
+  // 2. Check customer-level summary
+  const summary = customer.frame_size_summary || customer.frameSize;
+  if (summary) {
+    const sNorm = normalizeSizeString(summary);
+    if (sNorm && sNorm !== 'standard') {
+      if (sNorm === sCode || sNorm === sName) return true;
+      const dims = extractDimensions(sNorm);
+      for (const [dw, dh] of dims) {
+        if ((dw === w && dh === h) || (dw === h && dh === w)) return true;
+      }
+    }
   }
 
   return false;
+}
+
+function formatLocalDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function parseOrderDay(dateVal: any): Date | null {
+  if (!dateVal) return null;
+  if (typeof dateVal === 'string' && /^\d{4}-\d{2}-\d{2}/.test(dateVal)) {
+    const parts = dateVal.slice(0, 10).split('-').map(Number);
+    return new Date(parts[0], parts[1] - 1, parts[2]);
+  }
+  const d = new Date(dateVal);
+  if (isNaN(d.getTime())) return null;
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
 
 // ==========================================
@@ -724,43 +747,9 @@ export const db = {
 
   // --- FRAME SIZES MASTER CATALOG ---
   frameSizes: {
-    async list(activeOnly = false): Promise<FrameSizeMaster[]> {
-      let list: FrameSizeMaster[] = [];
-
-      const pool = getDbPool();
-      if (pool && isDbConnected()) {
-        try {
-          const sql = activeOnly
-            ? 'SELECT * FROM frame_sizes_master WHERE is_active = true ORDER BY sort_order ASC, code ASC'
-            : 'SELECT * FROM frame_sizes_master ORDER BY sort_order ASC, code ASC';
-          const res = await pool.query(sql);
-          if (res.rows && res.rows.length > 0) list = res.rows;
-        } catch (e) {
-          logger.error('Error fetching frame sizes from PostgreSQL:', e);
-        }
-      }
-
-      if (list.length === 0 && isSupabaseConfigured()) {
-        try {
-          const sb = getSupabase();
-          let query = sb.from('frame_sizes_master').select('*').order('sort_order', { ascending: true });
-          if (activeOnly) query = query.eq('is_active', true);
-          const { data } = await query;
-          if (data && data.length > 0) list = data as FrameSizeMaster[];
-        } catch (e) {
-          logger.error('Error fetching frame sizes from Supabase:', e);
-        }
-      }
-
-      if (list.length === 0) {
-        list = [...store.frameSizes];
-        if (activeOnly) {
-          list = list.filter((s) => s.is_active);
-        }
-      }
-
-      // Dynamically compute real order counts from database / store by matching each frame size with active orders (status != cancelled)
+    async syncOrdersCount(): Promise<FrameSizeMaster[]> {
       try {
+        const pool = getDbPool();
         let activeCustomers: any[] = [];
         if (isSupabaseConfigured()) {
           const sb = getSupabase();
@@ -783,37 +772,52 @@ export const db = {
           activeCustomers = store.customers.filter((c) => c.status !== 'cancelled');
         }
 
-        for (const size of list) {
+        let sizes: FrameSizeMaster[] = store.frameSizes;
+        if (pool && isDbConnected()) {
+          const res = await pool.query('SELECT * FROM frame_sizes_master ORDER BY sort_order ASC, code ASC');
+          if (res.rows && res.rows.length > 0) sizes = res.rows;
+        } else if (isSupabaseConfigured()) {
+          const sb = getSupabase();
+          const { data } = await sb.from('frame_sizes_master').select('*').order('sort_order', { ascending: true });
+          if (data && data.length > 0) sizes = data as FrameSizeMaster[];
+        }
+
+        for (const size of sizes) {
           const matching = activeCustomers.filter((c) => matchesFrameSize(size, c));
           size.orders_count = matching.length;
         }
 
-        // Keep in-memory store in sync
-        for (const s of list) {
+        for (const s of sizes) {
           const stored = store.frameSizes.find((item) => item.code.toLowerCase() === s.code.toLowerCase());
           if (stored) stored.orders_count = s.orders_count;
         }
 
-        // Asynchronously update DB row orders_count
         if (isSupabaseConfigured()) {
           const sb = getSupabase();
-          Promise.all(
-            list.map((s) =>
+          await Promise.all(
+            sizes.map((s) =>
               sb.from('frame_sizes_master').update({ orders_count: s.orders_count }).eq('code', s.code)
             )
-          ).catch((e) => logger.error('Error syncing orders_count to Supabase:', e));
+          ).catch((e) => logger.error('Error updating orders_count in Supabase:', e));
         } else if (pool && isDbConnected()) {
-          Promise.all(
-            list.map((s) =>
+          await Promise.all(
+            sizes.map((s) =>
               pool.query('UPDATE frame_sizes_master SET orders_count = $1 WHERE code = $2', [s.orders_count, s.code])
             )
-          ).catch((e) => logger.error('Error syncing orders_count to PG:', e));
+          ).catch((e) => logger.error('Error updating orders_count in PG:', e));
         }
-      } catch (err) {
-        logger.error('Error calculating real-time frame size order counts:', err);
-      }
 
-      return list.sort((a, b) => a.sort_order - b.sort_order);
+        return sizes;
+      } catch (err) {
+        logger.error('Error syncing frame size orders count:', err);
+        return store.frameSizes;
+      }
+    },
+
+    async list(activeOnly = false): Promise<FrameSizeMaster[]> {
+      const sizes = await db.frameSizes.syncOrdersCount();
+      const filtered = activeOnly ? sizes.filter((s) => s.is_active) : sizes;
+      return filtered.sort((a, b) => a.sort_order - b.sort_order);
     },
 
     async findByCode(code: string): Promise<FrameSizeMaster | null> {
@@ -1338,6 +1342,7 @@ export const db = {
 
       // 2. Also keep in-memory cache synchronized
       store.customers.unshift(newCustomer);
+      db.frameSizes.syncOrdersCount().catch(() => {});
 
       photos.forEach((p, idx) => {
         store.customerPhotos.push({
@@ -1535,6 +1540,7 @@ export const db = {
       } else {
         store.customers.unshift(updatedDTO);
       }
+      db.frameSizes.syncOrdersCount().catch(() => {});
 
       return updatedDTO;
     },
@@ -1630,6 +1636,10 @@ export const db = {
       );
       if (store.customers.length < initial) {
         wasDeleted = true;
+      }
+
+      if (wasDeleted) {
+        db.frameSizes.syncOrdersCount().catch(() => {});
       }
 
       return wasDeleted;
@@ -1856,7 +1866,7 @@ export const db = {
         }));
       }
 
-      // Date window setup
+      // Date window setup using timezone-safe local dates
       const now = new Date();
       const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const endExclusive = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
@@ -1874,11 +1884,9 @@ export const db = {
 
       // Filter customers within the window
       const inWindow = rawCustomers.filter((c: any) => {
-        const dateVal = c.order_date || c.orderDate;
-        if (!dateVal) return false;
-        const d = new Date(dateVal);
-        const day = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-        return day >= startDate && day < endExclusive;
+        const orderDay = parseOrderDay(c.order_date || c.orderDate);
+        if (!orderDay) return false;
+        return orderDay >= startDate && orderDay < endExclusive;
       });
 
       // Filter billable customers (exclude cancelled from revenue / order count)
@@ -1916,15 +1924,12 @@ export const db = {
 
       // Trajectory and dailyData computation (cleanly handles missing days as 0)
       const dailyData: Array<{ date: string; revenue: number; orderCount: number }> = [];
-      const curDay = new Date(startDate);
+      const curDay = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
       while (curDay <= today) {
-        const dateStr = curDay.toISOString().slice(0, 10);
-        const nextDay = new Date(curDay.getFullYear(), curDay.getMonth(), curDay.getDate() + 1);
-
+        const dateStr = formatLocalDate(curDay);
         const dayOrders = billable.filter((c: any) => {
-          const d = new Date(c.order_date || c.orderDate);
-          const day = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-          return day >= curDay && day < nextDay;
+          const d = parseOrderDay(c.order_date || c.orderDate);
+          return d !== null && d.getTime() === curDay.getTime();
         });
 
         dailyData.push({
@@ -1945,9 +1950,11 @@ export const db = {
         const curMonth = new Date(now.getFullYear(), now.getMonth(), 1);
         let firstMonth = new Date(curMonth);
         billable.forEach((c: any) => {
-          const d = new Date(c.order_date || c.orderDate);
-          const m = new Date(d.getFullYear(), d.getMonth(), 1);
-          if (m < firstMonth) firstMonth = m;
+          const d = parseOrderDay(c.order_date || c.orderDate);
+          if (d) {
+            const m = new Date(d.getFullYear(), d.getMonth(), 1);
+            if (m < firstMonth) firstMonth = m;
+          }
         });
 
         const months: Date[] = [];
@@ -1967,22 +1974,20 @@ export const db = {
           const nextM = new Date(mon.getFullYear(), mon.getMonth() + 1, 1);
           const sum = billable
             .filter((c: any) => {
-              const d = new Date(c.order_date || c.orderDate);
-              return d >= mon && d < nextM;
+              const d = parseOrderDay(c.order_date || c.orderDate);
+              return d !== null && d >= mon && d < nextM;
             })
             .reduce((s: number, c: any) => s + (Number(c.total) || 0), 0);
           values.push(sum);
         });
       } else {
         const checkpoints: Date[] = [];
-        let cp = new Date(startDate);
-        while (cp <= today) {
+        let cp = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+        while (cp < today) {
           checkpoints.push(new Date(cp));
           cp.setDate(cp.getDate() + bucketDays);
         }
-        if (checkpoints.length === 0 || checkpoints[checkpoints.length - 1].getTime() !== today.getTime()) {
-          checkpoints.push(new Date(today));
-        }
+        checkpoints.push(new Date(today));
 
         for (let i = 0; i < checkpoints.length; i++) {
           const curCp = checkpoints[i];
@@ -1992,18 +1997,17 @@ export const db = {
           let to: Date;
           if (i === 0) {
             from = curCp;
-            to = new Date(curCp.getFullYear(), curCp.getMonth(), curCp.getDate() + 1);
+            to = curCp;
           } else {
             const prevCp = checkpoints[i - 1];
             from = new Date(prevCp.getFullYear(), prevCp.getMonth(), prevCp.getDate() + 1);
-            to = new Date(curCp.getFullYear(), curCp.getMonth(), curCp.getDate() + 1);
+            to = curCp;
           }
 
           const sum = billable
             .filter((c: any) => {
-              const d = new Date(c.order_date || c.orderDate);
-              const day = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-              return day >= from && day < to;
+              const d = parseOrderDay(c.order_date || c.orderDate);
+              return d !== null && d >= from && d <= to;
             })
             .reduce((s: number, c: any) => s + (Number(c.total) || 0), 0);
 
@@ -2020,8 +2024,8 @@ export const db = {
         topSellingSizes,
         statusBreakdown,
         salesTrajectory: {
-          startDate: startDate.toISOString().slice(0, 10),
-          endDate: today.toISOString().slice(0, 10),
+          startDate: formatLocalDate(startDate),
+          endDate: formatLocalDate(today),
           labels,
           values,
           dailyData,
