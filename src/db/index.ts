@@ -53,19 +53,19 @@ const store = {
     retention_target: 'all',
   } as WorkshopSettings,
   frameSizes: [
-    { code: 'FS-01', name: '4 × 6 inch', width: 4.0, height: 6.0, unit: 'Inch', category: 'Standard', orders_count: 14, is_active: true, sort_order: 1 },
-    { code: 'FS-02', name: '5 × 7 inch', width: 5.0, height: 7.0, unit: 'Inch', category: 'Standard', orders_count: 28, is_active: true, sort_order: 2 },
-    { code: 'FS-03', name: '6 × 8 inch', width: 6.0, height: 8.0, unit: 'Inch', category: 'Standard', orders_count: 19, is_active: true, sort_order: 3 },
-    { code: 'FS-04', name: '8 × 10 inch', width: 8.0, height: 10.0, unit: 'Inch', category: 'Standard', orders_count: 35, is_active: true, sort_order: 4 },
-    { code: 'FS-05', name: '8 × 12 inch (A4)', width: 8.0, height: 12.0, unit: 'Inch', category: 'Standard', orders_count: 48, is_active: true, sort_order: 5 },
-    { code: 'FS-06', name: '10 × 12 inch', width: 10.0, height: 12.0, unit: 'Inch', category: 'Standard', orders_count: 22, is_active: true, sort_order: 6 },
-    { code: 'FS-07', name: '12 × 15 inch', width: 12.0, height: 15.0, unit: 'Inch', category: 'Standard', orders_count: 18, is_active: true, sort_order: 7 },
-    { code: 'FS-08', name: '12 × 18 inch (A3)', width: 12.0, height: 18.0, unit: 'Inch', category: 'Standard', orders_count: 65, is_active: true, sort_order: 8 },
-    { code: 'FS-09', name: '16 × 20 inch', width: 16.0, height: 20.0, unit: 'Inch', category: 'Large', orders_count: 30, is_active: true, sort_order: 9 },
-    { code: 'FS-10', name: '16 × 24 inch', width: 16.0, height: 24.0, unit: 'Inch', category: 'Large', orders_count: 42, is_active: true, sort_order: 10 },
-    { code: 'FS-11', name: '20 × 24 inch', width: 20.0, height: 24.0, unit: 'Inch', category: 'Large', orders_count: 21, is_active: true, sort_order: 11 },
-    { code: 'FS-12', name: '20 × 30 inch', width: 20.0, height: 30.0, unit: 'Inch', category: 'Large', orders_count: 17, is_active: true, sort_order: 12 },
-    { code: 'FS-13', name: '24 × 36 inch', width: 24.0, height: 36.0, unit: 'Inch', category: 'Canvas/Poster', orders_count: 25, is_active: true, sort_order: 13 },
+    { code: 'FS-01', name: '4 × 6 inch', width: 4.0, height: 6.0, unit: 'Inch', category: 'Standard', orders_count: 0, is_active: true, sort_order: 1 },
+    { code: 'FS-02', name: '5 × 7 inch', width: 5.0, height: 7.0, unit: 'Inch', category: 'Standard', orders_count: 0, is_active: true, sort_order: 2 },
+    { code: 'FS-03', name: '6 × 8 inch', width: 6.0, height: 8.0, unit: 'Inch', category: 'Standard', orders_count: 0, is_active: true, sort_order: 3 },
+    { code: 'FS-04', name: '8 × 10 inch', width: 8.0, height: 10.0, unit: 'Inch', category: 'Standard', orders_count: 0, is_active: true, sort_order: 4 },
+    { code: 'FS-05', name: '8 × 12 inch (A4)', width: 8.0, height: 12.0, unit: 'Inch', category: 'Standard', orders_count: 0, is_active: true, sort_order: 5 },
+    { code: 'FS-06', name: '10 × 12 inch', width: 10.0, height: 12.0, unit: 'Inch', category: 'Standard', orders_count: 0, is_active: true, sort_order: 6 },
+    { code: 'FS-07', name: '12 × 15 inch', width: 12.0, height: 15.0, unit: 'Inch', category: 'Standard', orders_count: 0, is_active: true, sort_order: 7 },
+    { code: 'FS-08', name: '12 × 18 inch (A3)', width: 12.0, height: 18.0, unit: 'Inch', category: 'Standard', orders_count: 0, is_active: true, sort_order: 8 },
+    { code: 'FS-09', name: '16 × 20 inch', width: 16.0, height: 20.0, unit: 'Inch', category: 'Large', orders_count: 0, is_active: true, sort_order: 9 },
+    { code: 'FS-10', name: '16 × 24 inch', width: 16.0, height: 24.0, unit: 'Inch', category: 'Large', orders_count: 0, is_active: true, sort_order: 10 },
+    { code: 'FS-11', name: '20 × 24 inch', width: 20.0, height: 24.0, unit: 'Inch', category: 'Large', orders_count: 0, is_active: true, sort_order: 11 },
+    { code: 'FS-12', name: '20 × 30 inch', width: 20.0, height: 30.0, unit: 'Inch', category: 'Large', orders_count: 0, is_active: true, sort_order: 12 },
+    { code: 'FS-13', name: '24 × 36 inch', width: 24.0, height: 36.0, unit: 'Inch', category: 'Canvas/Poster', orders_count: 0, is_active: true, sort_order: 13 },
   ] as FrameSizeMaster[],
   customers: [
     {
@@ -303,6 +303,65 @@ function mapDbCustomerToDTO(
     createdAt: c.created_at || new Date().toISOString(),
     updatedAt: c.updated_at || new Date().toISOString(),
   };
+}
+
+function normalizeSizeString(s: string | undefined | null): string {
+  if (!s) return '';
+  return s
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/x/g, '×')
+    .trim();
+}
+
+function matchesFrameSize(size: FrameSizeMaster, customer: any): boolean {
+  if (customer.status === 'cancelled') return false;
+
+  const sCode = normalizeSizeString(size.code);
+  const sName = normalizeSizeString(size.name);
+  const w = Number(size.width);
+  const h = Number(size.height);
+  const sDim = `${w} × ${h}`;
+  const sDimRev = `${h} × ${w}`;
+
+  // Check customer level summary
+  const summary = normalizeSizeString(customer.frame_size_summary || customer.frameSize);
+  if (summary && summary !== 'standard') {
+    if (
+      summary === sCode ||
+      summary === sName ||
+      summary.includes(sDim) ||
+      summary.includes(sDimRev) ||
+      sName.includes(summary)
+    ) {
+      return true;
+    }
+  }
+
+  // Check individual frames
+  const frames = customer.customer_frames || customer.frames || [];
+  for (const f of frames) {
+    const fSize = normalizeSizeString(f.size);
+    if (fSize && fSize !== 'standard') {
+      if (
+        fSize === sCode ||
+        fSize === sName ||
+        fSize.includes(sDim) ||
+        fSize.includes(sDimRev) ||
+        sName.includes(fSize)
+      ) {
+        return true;
+      }
+    }
+
+    const cw = Number(f.custom_width ?? f.customWidth);
+    const ch = Number(f.custom_height ?? f.customHeight);
+    if (cw && ch && ((cw === w && ch === h) || (cw === h && ch === w))) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 // ==========================================
@@ -666,6 +725,8 @@ export const db = {
   // --- FRAME SIZES MASTER CATALOG ---
   frameSizes: {
     async list(activeOnly = false): Promise<FrameSizeMaster[]> {
+      let list: FrameSizeMaster[] = [];
+
       const pool = getDbPool();
       if (pool && isDbConnected()) {
         try {
@@ -673,28 +734,85 @@ export const db = {
             ? 'SELECT * FROM frame_sizes_master WHERE is_active = true ORDER BY sort_order ASC, code ASC'
             : 'SELECT * FROM frame_sizes_master ORDER BY sort_order ASC, code ASC';
           const res = await pool.query(sql);
-          return res.rows;
+          if (res.rows && res.rows.length > 0) list = res.rows;
         } catch (e) {
           logger.error('Error fetching frame sizes from PostgreSQL:', e);
         }
       }
 
-      if (isSupabaseConfigured()) {
+      if (list.length === 0 && isSupabaseConfigured()) {
         try {
           const sb = getSupabase();
           let query = sb.from('frame_sizes_master').select('*').order('sort_order', { ascending: true });
           if (activeOnly) query = query.eq('is_active', true);
           const { data } = await query;
-          if (data) return data as FrameSizeMaster[];
+          if (data && data.length > 0) list = data as FrameSizeMaster[];
         } catch (e) {
           logger.error('Error fetching frame sizes from Supabase:', e);
         }
       }
 
-      let list = store.frameSizes;
-      if (activeOnly) {
-        list = list.filter((s) => s.is_active);
+      if (list.length === 0) {
+        list = [...store.frameSizes];
+        if (activeOnly) {
+          list = list.filter((s) => s.is_active);
+        }
       }
+
+      // Dynamically compute real order counts from database / store by matching each frame size with active orders (status != cancelled)
+      try {
+        let activeCustomers: any[] = [];
+        if (isSupabaseConfigured()) {
+          const sb = getSupabase();
+          const { data } = await sb
+            .from('customers')
+            .select('id, status, frame_size_summary, customer_frames(*)')
+            .neq('status', 'cancelled');
+          if (data) activeCustomers = data;
+        } else if (pool && isDbConnected()) {
+          const custRes = await pool.query(`
+            SELECT c.id, c.status, c.frame_size_summary,
+                   COALESCE(json_agg(f.*) FILTER (WHERE f.id IS NOT NULL), '[]') as customer_frames
+            FROM customers c
+            LEFT JOIN customer_frames f ON f.customer_id = c.id
+            WHERE c.status != 'cancelled'
+            GROUP BY c.id, c.status, c.frame_size_summary
+          `);
+          activeCustomers = custRes.rows;
+        } else {
+          activeCustomers = store.customers.filter((c) => c.status !== 'cancelled');
+        }
+
+        for (const size of list) {
+          const matching = activeCustomers.filter((c) => matchesFrameSize(size, c));
+          size.orders_count = matching.length;
+        }
+
+        // Keep in-memory store in sync
+        for (const s of list) {
+          const stored = store.frameSizes.find((item) => item.code.toLowerCase() === s.code.toLowerCase());
+          if (stored) stored.orders_count = s.orders_count;
+        }
+
+        // Asynchronously update DB row orders_count
+        if (isSupabaseConfigured()) {
+          const sb = getSupabase();
+          Promise.all(
+            list.map((s) =>
+              sb.from('frame_sizes_master').update({ orders_count: s.orders_count }).eq('code', s.code)
+            )
+          ).catch((e) => logger.error('Error syncing orders_count to Supabase:', e));
+        } else if (pool && isDbConnected()) {
+          Promise.all(
+            list.map((s) =>
+              pool.query('UPDATE frame_sizes_master SET orders_count = $1 WHERE code = $2', [s.orders_count, s.code])
+            )
+          ).catch((e) => logger.error('Error syncing orders_count to PG:', e));
+        }
+      } catch (err) {
+        logger.error('Error calculating real-time frame size order counts:', err);
+      }
+
       return list.sort((a, b) => a.sort_order - b.sort_order);
     },
 
@@ -908,7 +1026,10 @@ export const db = {
             query = query.gte('order_date', filters.startDate.slice(0, 10));
           }
           if (filters.endDate) {
-            query = query.lte('order_date', filters.endDate.slice(0, 10));
+            const endIso = filters.endDate.includes('T')
+              ? filters.endDate
+              : `${filters.endDate.slice(0, 10)}T23:59:59.999Z`;
+            query = query.lte('order_date', endIso);
           }
 
           const sortCol =
@@ -987,7 +1108,10 @@ export const db = {
         list = list.filter((c) => new Date(c.orderDate).getTime() >= start);
       }
       if (filters.endDate) {
-        const end = new Date(filters.endDate).getTime();
+        const endIso = filters.endDate.includes('T')
+          ? filters.endDate
+          : `${filters.endDate.slice(0, 10)}T23:59:59.999Z`;
+        const end = new Date(endIso).getTime();
         list = list.filter((c) => new Date(c.orderDate).getTime() <= end);
       }
 
@@ -1694,78 +1818,83 @@ export const db = {
   // --- REPORTS ---
   reports: {
     async getSummary(period: string = 'month1'): Promise<ReportsSummary> {
+      let rawCustomers: any[] = [];
+
       if (isSupabaseConfigured()) {
         try {
           const sb = getSupabase();
-          const { data: customers, error } = await sb
+          const { data, error } = await sb
             .from('customers')
             .select('id, total, advance, status, frame_size_summary, qty, order_date');
-
-          if (!error && customers && customers.length > 0) {
-            let list = customers;
-            if (period === 'month1') {
-              const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-              list = customers.filter((c: any) => (c.order_date || '') >= cutoff);
-            }
-
-            const orderCount = list.length;
-            const grossSales = list.reduce((acc: number, c: any) => acc + (Number(c.total) || 0), 0);
-            const advanceCollected = list.reduce((acc: number, c: any) => acc + (Number(c.advance) || 0), 0);
-            const outstandingBalance = grossSales - advanceCollected;
-
-            const sizeMap = new Map<string, { count: number; revenue: number }>();
-            list.forEach((c: any) => {
-              const size = c.frame_size_summary || 'Standard';
-              const cur = sizeMap.get(size) || { count: 0, revenue: 0 };
-              cur.count += c.qty || 1;
-              cur.revenue += Number(c.total) || 0;
-              sizeMap.set(size, cur);
-            });
-
-            const topSellingSizes = Array.from(sizeMap.entries())
-              .map(([size, stat]) => ({
-                size,
-                count: stat.count,
-                revenue: stat.revenue,
-              }))
-              .sort((a, b) => b.count - a.count)
-              .slice(0, 5);
-
-            const statusBreakdown = {
-              completed: list.filter((c: any) => c.status === 'completed').length,
-              inProgress: list.filter((c: any) => c.status === 'inProgress').length,
-              pending: list.filter((c: any) => c.status === 'pending').length,
-              cancelled: list.filter((c: any) => c.status === 'cancelled').length,
-            };
-
-            return {
-              period,
-              orderCount,
-              grossSales,
-              advanceCollected,
-              outstandingBalance,
-              topSellingSizes,
-              statusBreakdown,
-            };
-          }
+          if (!error && data) rawCustomers = data;
         } catch (e) {
           logger.error('Supabase reports.getSummary exception:', e);
         }
       }
 
-      const customers = store.customers;
-      const orderCount = customers.length;
-      const grossSales = customers.reduce((acc, c) => acc + (c.total || 0), 0);
-      const advanceCollected = customers.reduce((acc, c) => acc + (c.advance || 0), 0);
+      const pool = getDbPool();
+      if (rawCustomers.length === 0 && pool && isDbConnected()) {
+        try {
+          const res = await pool.query(
+            'SELECT id, total, advance, status, frame_size_summary, qty, order_date FROM customers'
+          );
+          if (res.rows) rawCustomers = res.rows;
+        } catch (e) {
+          logger.error('PG pool reports.getSummary exception:', e);
+        }
+      }
+
+      if (rawCustomers.length === 0) {
+        rawCustomers = store.customers.map((c) => ({
+          id: c.id,
+          total: c.total,
+          advance: c.advance,
+          status: c.status,
+          frame_size_summary: c.frameSize,
+          qty: c.qty,
+          order_date: c.orderDate,
+        }));
+      }
+
+      // Date window setup
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const endExclusive = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+
+      let daysBack = 29;
+      let bucketDays = 5;
+      if (period === 'month2') {
+        daysBack = 59;
+        bucketDays = 10;
+      }
+
+      const startDate = period === 'allTime'
+        ? new Date(2000, 0, 1)
+        : new Date(today.getFullYear(), today.getMonth(), today.getDate() - daysBack);
+
+      // Filter customers within the window
+      const inWindow = rawCustomers.filter((c: any) => {
+        const dateVal = c.order_date || c.orderDate;
+        if (!dateVal) return false;
+        const d = new Date(dateVal);
+        const day = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+        return day >= startDate && day < endExclusive;
+      });
+
+      // Filter billable customers (exclude cancelled from revenue / order count)
+      const billable = inWindow.filter((c: any) => c.status !== 'cancelled');
+
+      const orderCount = billable.length;
+      const grossSales = billable.reduce((acc: number, c: any) => acc + (Number(c.total) || 0), 0);
+      const advanceCollected = billable.reduce((acc: number, c: any) => acc + (Number(c.advance) || 0), 0);
       const outstandingBalance = grossSales - advanceCollected;
 
-      // Top selling frame sizes tally
       const sizeMap = new Map<string, { count: number; revenue: number }>();
-      customers.forEach((c) => {
-        const size = c.frameSize || 'Standard';
+      billable.forEach((c: any) => {
+        const size = c.frame_size_summary || 'Standard';
         const cur = sizeMap.get(size) || { count: 0, revenue: 0 };
         cur.count += c.qty || 1;
-        cur.revenue += c.total || 0;
+        cur.revenue += Number(c.total) || 0;
         sizeMap.set(size, cur);
       });
 
@@ -1779,11 +1908,108 @@ export const db = {
         .slice(0, 5);
 
       const statusBreakdown = {
-        completed: customers.filter((c) => c.status === 'completed').length,
-        inProgress: customers.filter((c) => c.status === 'inProgress').length,
-        pending: customers.filter((c) => c.status === 'pending').length,
-        cancelled: customers.filter((c) => c.status === 'cancelled').length,
+        completed: inWindow.filter((c: any) => c.status === 'completed').length,
+        inProgress: inWindow.filter((c: any) => c.status === 'inProgress').length,
+        pending: inWindow.filter((c: any) => c.status === 'pending').length,
+        cancelled: inWindow.filter((c: any) => c.status === 'cancelled').length,
       };
+
+      // Trajectory and dailyData computation (cleanly handles missing days as 0)
+      const dailyData: Array<{ date: string; revenue: number; orderCount: number }> = [];
+      const curDay = new Date(startDate);
+      while (curDay <= today) {
+        const dateStr = curDay.toISOString().slice(0, 10);
+        const nextDay = new Date(curDay.getFullYear(), curDay.getMonth(), curDay.getDate() + 1);
+
+        const dayOrders = billable.filter((c: any) => {
+          const d = new Date(c.order_date || c.orderDate);
+          const day = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+          return day >= curDay && day < nextDay;
+        });
+
+        dailyData.push({
+          date: dateStr,
+          revenue: dayOrders.reduce((sum: number, c: any) => sum + (Number(c.total) || 0), 0),
+          orderCount: dayOrders.length,
+        });
+
+        curDay.setDate(curDay.getDate() + 1);
+      }
+
+      const labels: string[] = [];
+      const values: number[] = [];
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const formatShort = (d: Date) => `${monthNames[d.getMonth()]} ${String(d.getDate()).padStart(2, '0')}`;
+
+      if (period === 'allTime') {
+        const curMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        let firstMonth = new Date(curMonth);
+        billable.forEach((c: any) => {
+          const d = new Date(c.order_date || c.orderDate);
+          const m = new Date(d.getFullYear(), d.getMonth(), 1);
+          if (m < firstMonth) firstMonth = m;
+        });
+
+        const months: Date[] = [];
+        let m = new Date(firstMonth);
+        while (m <= curMonth) {
+          months.push(new Date(m));
+          m.setMonth(m.getMonth() + 1);
+        }
+        if (months.length > 12) months.splice(0, months.length - 12);
+        if (months.length < 2) {
+          months.unshift(new Date(curMonth.getFullYear(), curMonth.getMonth() - 1, 1));
+        }
+
+        months.forEach((mon) => {
+          const suffix = mon.getFullYear() !== now.getFullYear() ? ` '${String(mon.getFullYear() % 100).padStart(2, '0')}` : '';
+          labels.push(`${monthNames[mon.getMonth()]}${suffix}`);
+          const nextM = new Date(mon.getFullYear(), mon.getMonth() + 1, 1);
+          const sum = billable
+            .filter((c: any) => {
+              const d = new Date(c.order_date || c.orderDate);
+              return d >= mon && d < nextM;
+            })
+            .reduce((s: number, c: any) => s + (Number(c.total) || 0), 0);
+          values.push(sum);
+        });
+      } else {
+        const checkpoints: Date[] = [];
+        let cp = new Date(startDate);
+        while (cp <= today) {
+          checkpoints.push(new Date(cp));
+          cp.setDate(cp.getDate() + bucketDays);
+        }
+        if (checkpoints.length === 0 || checkpoints[checkpoints.length - 1].getTime() !== today.getTime()) {
+          checkpoints.push(new Date(today));
+        }
+
+        for (let i = 0; i < checkpoints.length; i++) {
+          const curCp = checkpoints[i];
+          labels.push(formatShort(curCp));
+
+          let from: Date;
+          let to: Date;
+          if (i === 0) {
+            from = curCp;
+            to = new Date(curCp.getFullYear(), curCp.getMonth(), curCp.getDate() + 1);
+          } else {
+            const prevCp = checkpoints[i - 1];
+            from = new Date(prevCp.getFullYear(), prevCp.getMonth(), prevCp.getDate() + 1);
+            to = new Date(curCp.getFullYear(), curCp.getMonth(), curCp.getDate() + 1);
+          }
+
+          const sum = billable
+            .filter((c: any) => {
+              const d = new Date(c.order_date || c.orderDate);
+              const day = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+              return day >= from && day < to;
+            })
+            .reduce((s: number, c: any) => s + (Number(c.total) || 0), 0);
+
+          values.push(sum);
+        }
+      }
 
       return {
         period,
@@ -1793,6 +2019,13 @@ export const db = {
         outstandingBalance,
         topSellingSizes,
         statusBreakdown,
+        salesTrajectory: {
+          startDate: startDate.toISOString().slice(0, 10),
+          endDate: today.toISOString().slice(0, 10),
+          labels,
+          values,
+          dailyData,
+        },
       };
     },
   },

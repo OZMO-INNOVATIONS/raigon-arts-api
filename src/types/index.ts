@@ -234,4 +234,12 @@ export interface ReportsSummary {
     pending: number;
     cancelled?: number;
   };
+  salesTrajectory?: {
+    startDate: string;
+    endDate: string;
+    labels: string[];
+    values: number[];
+    dailyData: Array<{ date: string; revenue: number; orderCount: number }>;
+  };
 }
+
