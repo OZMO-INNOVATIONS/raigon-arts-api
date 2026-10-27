@@ -207,6 +207,11 @@ const store = {
   }>,
 };
 
+let cachedStats: { data: DashboardStats; expiresAt: number } | null = null;
+export function invalidateStatsCache(): void {
+  cachedStats = null;
+}
+
 function normalizePhotoUrl(url: string | null | undefined): string {
   if (!url) return '';
   let clean = url.trim();
@@ -1358,6 +1363,7 @@ export const db = {
         });
       });
 
+      invalidateStatsCache();
       return newCustomer;
     },
 
@@ -1541,6 +1547,7 @@ export const db = {
         store.customers.unshift(updatedDTO);
       }
       db.frameSizes.syncOrdersCount().catch(() => {});
+      invalidateStatsCache();
 
       return updatedDTO;
     },
@@ -1640,6 +1647,7 @@ export const db = {
 
       if (wasDeleted) {
         db.frameSizes.syncOrdersCount().catch(() => {});
+        invalidateStatsCache();
       }
 
       return wasDeleted;
@@ -1742,6 +1750,13 @@ export const db = {
   // --- DASHBOARD ANALYTICS ---
   dashboard: {
     async getStats(): Promise<DashboardStats> {
+      // 1. High-performance memory cache check (30-second TTL)
+      if (cachedStats && cachedStats.expiresAt > Date.now()) {
+        return cachedStats.data;
+      }
+
+      let result: DashboardStats | null = null;
+
       if (isSupabaseConfigured()) {
         try {
           const sb = getSupabase();
@@ -1775,7 +1790,7 @@ export const db = {
               orderDate: c.order_date,
             }));
 
-            return {
+            result = {
               totalCustomers,
               totalRevenue,
               totalAdvance,
@@ -1789,39 +1804,45 @@ export const db = {
         }
       }
 
-      const customers = store.customers;
-      const totalCustomers = customers.length;
-      const totalRevenue = customers.reduce((acc, c) => acc + (c.total || 0), 0);
-      const totalAdvance = customers.reduce((acc, c) => acc + (c.advance || 0), 0);
-      const pendingBalance = totalRevenue - totalAdvance;
+      if (!result) {
+        const customers = store.customers;
+        const totalCustomers = customers.length;
+        const totalRevenue = customers.reduce((acc, c) => acc + (c.total || 0), 0);
+        const totalAdvance = customers.reduce((acc, c) => acc + (c.advance || 0), 0);
+        const pendingBalance = totalRevenue - totalAdvance;
 
-      const statusCounts = {
-        pending: customers.filter((c) => c.status === 'pending').length,
-        inProgress: customers.filter((c) => c.status === 'inProgress').length,
-        completed: customers.filter((c) => c.status === 'completed').length,
-        cancelled: customers.filter((c) => c.status === 'cancelled').length,
-      };
+        const statusCounts = {
+          pending: customers.filter((c) => c.status === 'pending').length,
+          inProgress: customers.filter((c) => c.status === 'inProgress').length,
+          completed: customers.filter((c) => c.status === 'completed').length,
+          cancelled: customers.filter((c) => c.status === 'cancelled').length,
+        };
 
-      const recentOrders = customers.slice(0, 10).map((c) => ({
-        id: c.id,
-        name: c.name,
-        phone: c.phone,
-        frameSize: c.frameSize,
-        frameType: c.frameType,
-        qty: c.qty,
-        total: c.total,
-        status: c.status,
-        orderDate: c.orderDate,
-      }));
+        const recentOrders = customers.slice(0, 10).map((c) => ({
+          id: c.id,
+          name: c.name,
+          phone: c.phone,
+          frameSize: c.frameSize,
+          frameType: c.frameType,
+          qty: c.qty,
+          total: c.total,
+          status: c.status,
+          orderDate: c.orderDate,
+        }));
 
-      return {
-        totalCustomers,
-        totalRevenue,
-        totalAdvance,
-        pendingBalance,
-        statusCounts,
-        recentOrders,
-      };
+        result = {
+          totalCustomers,
+          totalRevenue,
+          totalAdvance,
+          pendingBalance,
+          statusCounts,
+          recentOrders,
+        };
+      }
+
+      // Cache for 30 seconds
+      cachedStats = { data: result, expiresAt: Date.now() + 30000 };
+      return result;
     },
   },
 

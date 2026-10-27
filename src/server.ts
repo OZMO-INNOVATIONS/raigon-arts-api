@@ -28,6 +28,10 @@ async function bootstrap() {
   const { CleanupService } = await import('./services/cleanup.service.js');
   CleanupService.startScheduledCleanup();
 
+  // Start automated Keep-Alive ping to prevent cloud container sleep
+  const { KeepAliveService } = await import('./services/keepalive.service.js');
+  KeepAliveService.start(10);
+
   // Graceful shutdown
   const shutdown = (signal: string) => {
     logger.info(`Received ${signal}. Shutting down gracefully...`);

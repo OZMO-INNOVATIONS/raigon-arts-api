@@ -1,0 +1,17 @@
+name: Render Cloud Server Keep-Alive
+
+on:
+  schedule:
+    # Trigger every 10 minutes (UTC) to keep Render free tier hot & awake
+    - cron: '*/10 * * * *'
+  workflow_dispatch: # Allows manual trigger from GitHub UI
+
+jobs:
+  ping-server:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Ping Raigon Arts Backend Health
+        run: |
+          echo "Pinging Raigon Arts Render instance..."
+          curl -s -f -m 30 "https://raigon-arts-api-1a3z.onrender.com/health" || echo "Ping dispatched"
