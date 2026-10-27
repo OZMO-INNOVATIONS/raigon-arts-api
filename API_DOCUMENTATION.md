@@ -1,6 +1,7 @@
 # Raigon Art - Complete REST API Documentation & Data Contracts
 **Version:** 2.0.0 (Comprehensive Production Edition)  
 **Base URL (Local):** `http://localhost:5001`  
+**Base URL (Production Render):** `https://raigon-arts-api-1a3z.onrender.com`  
 **Base Path:** `/api/v1`  
 **Authentication Scheme:** HTTP Bearer JWT Token (`Authorization: Bearer <token>`)
 
@@ -17,7 +18,8 @@
 8. [Module 7: WhatsApp Automations](#8-module-7-whatsapp-automations)
 9. [Module 8: Workshop Settings & Profile](#9-module-8-workshop-settings--profile)
 10. [System Health Check](#10-system-health-check)
-11. [Standard Error Responses](#11-standard-error-responses)
+11. [Cloud Server Keep-Alive & Performance Architecture](#11-cloud-server-keep-alive--performance-architecture)
+12. [Standard Error Responses](#12-standard-error-responses)
 
 ---
 
@@ -663,6 +665,10 @@ Retrieves all master frame sizes. The `orders` and `ordersCount` fields are **dy
 ### 5.1 Dashboard Summary Statistics
 Fetches real-time counts, revenue, outstanding balances, and recent orders.
 
+* **Performance & Caching:**  
+  * Employs an internal high-speed memory cache with a **30-second TTL** to deliver instantaneous sub-5ms responses.
+  * Real-time cache invalidation triggers automatically whenever orders are created, updated, or deleted, ensuring the latest business state is immediately reflected.
+
 * **Method:** `GET`
 * **URL:** `/api/v1/dashboard/stats`
 * **Response (200 OK):**
@@ -836,6 +842,26 @@ Dispatches a notification to the customer when the order is ready for collection
 
 ---
 
+### 7.3 WhatsApp Gateway Status
+Fetches current Meta Graph API configuration status, connectivity mode, and active sender phone number ID.
+
+* **Method:** `GET`
+* **URL:** `/api/v1/whatsapp/status`
+* **Response (200 OK):**
+```json
+{
+  "success": true,
+  "data": {
+    "configured": true,
+    "mode": "live",
+    "apiUrl": "https://graph.facebook.com/v20.0",
+    "phoneNumberId": "4829***"
+  }
+}
+```
+
+---
+
 ## 9. Module 8: Workshop Settings & Profile
 
 ### 8.1 Get Workshop Profile
@@ -972,6 +998,8 @@ Executes immediate purging of expired records and their storage photos without w
 ## 10. System Health Check
 
 ### 10.1 Health Status
+Provides real-time health diagnostics, active build tag, uptime status, and active storage driver mode. Used by monitoring tools and cloud orchestrators for liveness verification.
+
 * **Method:** `GET`
 * **URL:** `/health` (or `/`)
 * **Response (200 OK):**
@@ -980,15 +1008,40 @@ Executes immediate purging of expired records and their storage photos without w
   "success": true,
   "name": "Raigon Art Backend REST API",
   "version": "2.0.0",
+  "buildTag": "2026.10.23-realtime-orders-trajectory-v2",
   "status": "ONLINE",
   "storageMode": "supabase",
-  "timestamp": "2026-10-16T17:38:00.000Z"
+  "timestamp": "2026-10-27T05:05:15.553Z"
 }
 ```
 
 ---
 
-## 11. Standard Error Responses
+## 11. Cloud Server Keep-Alive & Performance Architecture
+
+### 11.1 Automated Keep-Alive Service
+Free-tier containers on Render automatically spin down into sleep after 15 minutes of inactivity, causing 30–45s cold starts for subsequent client requests.
+To eliminate cold starts and keep the API 100% hot and responsive:
+* **Internal Keep-Alive Worker:** The backend initializes `KeepAliveService` at boot, which dispatches a lightweight `GET /health` ping to its public domain (`https://raigon-arts-api-1a3z.onrender.com/health`) every **10 minutes**.
+* **Ingress Reset:** Because outbound requests route through Render's external Cloudflare reverse proxy, Render registers live HTTP traffic and continuously resets the 15-minute idle countdown timer.
+* **Failover External Cron:** The repository includes a GitHub Actions scheduled workflow (`.github/workflows/keep-alive.yml`) that pings `/health` every 10 minutes from GitHub infrastructure to provide redundant wakefulness even after host maintenance reboots.
+
+### 11.2 PostgreSQL Connection Pool Resilience
+* **Pool Configuration:** Uses a connection pool with `max: 20`, connection timeout set to `15,000ms`, and TCP `keepAlive: true` with a 10s initial delay.
+* **Auto Reconnection:** Prevents transient drops during cloud socket migrations and ensures smooth queries between Render and Supabase.
+
+### 11.3 High-Performance Analytics Caching
+* **30-Second TTL:** `/api/v1/dashboard/stats` is served from an internal sub-millisecond memory cache.
+* **Reactive Invalidation:** Mutations (`POST /api/v1/customers`, `PUT /api/v1/customers/:id`, `PATCH .../status`, `DELETE ...`) immediately invalidate the cached stats so new order updates reflect in real-time.
+
+### 11.4 Recommended Client-Side Network Settings
+Client applications (`raigonWeb`, `raigonApp`) should adhere to the following network standards:
+* **Default Request Timeout:** Minimum `45–50 seconds`.
+* **Automatic Retry with Backoff:** Implement 2 retries (with 2s and 4s delays) for `TimeoutException` and HTTP 502/503/504 errors before presenting an error state to the user.
+
+---
+
+## 12. Standard Error Responses
 
 | Status Code | Meaning | Example Payload |
 |:---|:---|:---|
