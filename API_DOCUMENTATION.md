@@ -17,7 +17,10 @@
 7. [Module 6: Reports & Exports](#7-module-6-reports--exports)
 8. [Module 7: WhatsApp Automations](#8-module-7-whatsapp-automations)
 9. [Module 8: Workshop Settings & Profile](#9-module-8-workshop-settings--profile)
-10. [System Health Check](#10-system-health-check)
+10. [Module 9: Reminders Management System](#10-module-9-reminders-management-system)
+11. [System Health Check](#11-system-health-check)
+12. [Cloud Server Keep-Alive & Performance Architecture](#12-cloud-server-keep-alive--performance-architecture)
+13. [Standard Error Responses](#13-standard-error-responses)
 11. [Cloud Server Keep-Alive & Performance Architecture](#11-cloud-server-keep-alive--performance-architecture)
 12. [Standard Error Responses](#12-standard-error-responses)
 
@@ -551,7 +554,9 @@ Uploads any single image, converts it to WebP, generates a 300px thumbnail, and 
 
 ---
 
-## 5. Module 4: Frame Sizes Master Catalog
+## 5. Module 4: Material & Frame Sizes Master Catalog
+
+> **Terminology Note:** In RAIGON ARTS 2.1+, "Frame Sizes" is user-facingly presented as **"Material"**. Both `/api/v1/frame-sizes` and the alias `/api/v1/materials` are supported identically.
 
 ### 4.1 List Frame Sizes
 Retrieves all master frame sizes. The `orders` and `ordersCount` fields are **dynamically aggregated in real-time** from active customer orders (`customers` and `customer_frames`), matching size codes, labels, and dimensions.
@@ -995,7 +1000,189 @@ Executes immediate purging of expired records and their storage photos without w
 
 ---
 
-## 10. System Health Check
+## 10. Module 9: Reminders Management System
+
+A dedicated module for scheduled follow-ups with customers, orders, and workshop projects across Web and Mobile applications.
+
+### 9.1 Reminder Summary & Counters
+Retrieves aggregated reminder counts for dashboard filter badges.
+
+* **Method:** `GET`
+* **URL:** `/api/v1/reminders/summary/stats`
+* **Authentication:** Staff or Admin
+* **Response (200 OK):**
+```json
+{
+  "success": true,
+  "data": {
+    "all": 12,
+    "today": 3,
+    "upcoming": 7,
+    "overdue": 2,
+    "completed": 15,
+    "dueCount": 5
+  }
+}
+```
+
+---
+
+### 9.2 List Reminders
+List reminders with pagination and status filters.
+
+* **Method:** `GET`
+* **URL:** `/api/v1/reminders`
+* **Query Parameters:**
+  * `filter` (optional): `all` | `today` | `upcoming` | `overdue` | `completed` (default: `all`)
+  * `search` (optional): Searches title, customer name, and customer ID
+  * `priority` (optional): `low` | `medium` | `high` | `urgent`
+  * `assignedStaff` (optional): Filter by assigned staff member name
+  * `customerId` (optional): Filter reminders linked to a specific customer
+  * `page` (optional): Page number (default: 1)
+  * `limit` (optional): Records per page (default: 50)
+  * `sortBy` (optional): `reminderDate` | `priority` | `createdAt` (default: `reminderDate`)
+  * `sortOrder` (optional): `asc` | `desc` (default: `asc`)
+* **Response (200 OK):**
+```json
+{
+  "success": true,
+  "meta": {
+    "total": 3,
+    "page": 1,
+    "limit": 50,
+    "totalPages": 1,
+    "stats": {
+      "all": 3,
+      "today": 1,
+      "upcoming": 1,
+      "overdue": 1,
+      "completed": 0,
+      "dueCount": 2
+    }
+  },
+  "data": [
+    {
+      "id": "REM-1793387386818",
+      "title": "Customer Follow-up Nov 5",
+      "customerName": "Ananthu Krishnan",
+      "customerId": "RA-1001",
+      "orderId": "RA-1001",
+      "description": "Call customer regarding completed teak frame pickup.",
+      "reminderDate": "2026-11-05",
+      "reminderTime": "14:30",
+      "assignedStaff": "Workshop Staff",
+      "priority": "high",
+      "status": "pending",
+      "completedBy": "",
+      "completedAt": "",
+      "notificationTriggered": false,
+      "createdAt": "2026-10-30T19:09:46.818Z",
+      "updatedAt": "2026-10-30T19:09:46.818Z"
+    }
+  ]
+}
+```
+
+---
+
+### 9.3 Create Reminder
+Create a reminder linked to a customer or order for a scheduled date and time.
+
+* **Method:** `POST`
+* **URL:** `/api/v1/reminders`
+* **Authentication:** Staff or Admin
+* **Request Body:**
+```json
+{
+  "title": "Contact Customer for Approval",
+  "customerName": "Deepa Nair",
+  "customerId": "RA-1002",
+  "orderId": "RA-1002",
+  "description": "Confirm mount border width before assembling frame.",
+  "reminderDate": "2026-11-05",
+  "reminderTime": "10:30",
+  "priority": "high",
+  "assignedStaff": "Workshop Staff"
+}
+```
+* **Response (201 Created):**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "REM-1793387386819",
+    "title": "Contact Customer for Approval",
+    "customerName": "Deepa Nair",
+    "customerId": "RA-1002",
+    "orderId": "RA-1002",
+    "description": "Confirm mount border width before assembling frame.",
+    "reminderDate": "2026-11-05",
+    "reminderTime": "10:30",
+    "assignedStaff": "Workshop Staff",
+    "priority": "high",
+    "status": "pending",
+    "completedBy": "",
+    "completedAt": "",
+    "notificationTriggered": false,
+    "createdAt": "2026-10-30T19:15:00.000Z",
+    "updatedAt": "2026-10-30T19:15:00.000Z"
+  }
+}
+```
+
+---
+
+### 9.4 Update & Complete Reminder
+Update reminder details or mark as completed. When `status: "completed"` is sent, the server automatically records the `completedBy` user and `completedAt` timestamp.
+
+* **Method:** `PATCH` or `PUT`
+* **URL:** `/api/v1/reminders/:id`
+* **Authentication:** Staff or Admin
+* **Request Body (Marking Completed):**
+```json
+{
+  "status": "completed"
+}
+```
+* **Response (200 OK):**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "REM-1793387386819",
+    "status": "completed",
+    "completedBy": "Workshop Staff",
+    "completedAt": "2026-10-30T19:20:00.000Z"
+  }
+}
+```
+
+---
+
+### 9.5 Delete Reminder
+* **Method:** `DELETE`
+* **URL:** `/api/v1/reminders/:id`
+* **Authentication:** Staff or Admin
+* **Response (200 OK):**
+```json
+{
+  "success": true,
+  "message": "Reminder REM-1793387386819 deleted successfully."
+}
+```
+
+---
+
+### 9.6 Server-Side Notification Scheduling
+The backend runs an automated background scheduler (`ReminderScheduler`) that executes every 60 seconds:
+- Automatically compares scheduled `reminder_date` and `reminder_time` with the current workshop time.
+- Triggers notifications reliably without requiring client applications to stay continuously open.
+- Sets `notification_triggered: true` to prevent duplicate alerts.
+- Distinguishes pending from overdue reminders automatically.
+
+---
+
+## 11. System Health Check
 
 ### 10.1 Health Status
 Provides real-time health diagnostics, active build tag, uptime status, and active storage driver mode. Used by monitoring tools and cloud orchestrators for liveness verification.
@@ -1017,7 +1204,7 @@ Provides real-time health diagnostics, active build tag, uptime status, and acti
 
 ---
 
-## 11. Cloud Server Keep-Alive & Performance Architecture
+## 12. Cloud Server Keep-Alive & Performance Architecture
 
 ### 11.1 Automated Keep-Alive Service
 Free-tier containers on Render automatically spin down into sleep after 15 minutes of inactivity, causing 30–45s cold starts for subsequent client requests.
@@ -1041,7 +1228,7 @@ Client applications (`raigonWeb`, `raigonApp`) should adhere to the following ne
 
 ---
 
-## 12. Standard Error Responses
+## 13. Standard Error Responses
 
 | Status Code | Meaning | Example Payload |
 |:---|:---|:---|

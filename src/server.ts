@@ -32,6 +32,11 @@ async function bootstrap() {
   const { KeepAliveService } = await import('./services/keepalive.service.js');
   KeepAliveService.start(10);
 
+  // Start automated Reminder Notification evaluation scheduler
+  const { startReminderScheduler } = await import("./services/reminderScheduler.js");
+  startReminderScheduler(60000);
+
+
   // Graceful shutdown
   const shutdown = (signal: string) => {
     logger.info(`Received ${signal}. Shutting down gracefully...`);

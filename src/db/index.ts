@@ -14,6 +14,11 @@ import {
   PaymentStatus,
   CustomerFrameDTO,
   CustomerPhotoRow,
+  ReminderDTO,
+  ReminderFilters,
+  ReminderStats,
+  ReminderPriority,
+  ReminderStatus,
 } from '../types/index.js';
 import { logger } from '../utils/logger.js';
 import bcrypt from 'bcryptjs';
@@ -198,6 +203,44 @@ const store = {
     isVerified: boolean;
     expiresAt: Date;
   }>,
+  reminders: [
+    {
+      id: "REM-1001",
+      title: "Frame Preview Confirmation",
+      customerName: "Ananthu Krishnan",
+      customerId: "RA-1001",
+      orderId: "RA-1001",
+      description: "Call customer to confirm Teak Wood Moulding sample selection before cutting.",
+      reminderDate: new Date().toISOString().slice(0, 10),
+      reminderTime: "11:00",
+      assignedStaff: "Workshop Staff",
+      priority: "high",
+      status: "pending",
+      completedBy: "",
+      completedAt: "",
+      notificationTriggered: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+    {
+      id: "REM-1002",
+      title: "Payment Balance Follow-up",
+      customerName: "Deepa Nair",
+      customerId: "RA-1002",
+      orderId: "RA-1002",
+      description: "Follow up on remaining balance of ₹2,000 for pickup tomorrow.",
+      reminderDate: new Date(Date.now() + 86400000).toISOString().slice(0, 10),
+      reminderTime: "15:30",
+      assignedStaff: "Admin",
+      priority: "medium",
+      status: "pending",
+      completedBy: "",
+      completedAt: "",
+      notificationTriggered: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+  ] as ReminderDTO[],
   activityLogs: [] as Array<{
     id: string;
     customer_id?: string;
@@ -236,6 +279,28 @@ function normalizePhotoUrl(url: string | null | undefined): string {
     return `https://nhqewkbztfmlophtzqmk.supabase.co/storage/v1/object/public/raigon-art-storage/${clean}`;
   }
   return clean;
+}
+
+
+function mapDbReminderToDTO(r: any): ReminderDTO {
+  return {
+    id: r.id,
+    title: r.title || "",
+    customerName: r.customer_name || r.customerName || "",
+    customerId: r.customer_id || r.customerId || "",
+    orderId: r.order_id || r.orderId || "",
+    description: r.description || "",
+    reminderDate: r.reminder_date || r.reminderDate || "",
+    reminderTime: r.reminder_time || r.reminderTime || "",
+    assignedStaff: r.assigned_staff || r.assignedStaff || "Unassigned",
+    priority: (r.priority || "medium") as ReminderPriority,
+    status: (r.status || "pending") as ReminderStatus,
+    completedBy: r.completed_by || r.completedBy || "",
+    completedAt: r.completed_at || r.completedAt || "",
+    notificationTriggered: Boolean(r.notification_triggered ?? r.notificationTriggered),
+    createdAt: r.created_at || new Date().toISOString(),
+    updatedAt: r.updated_at || new Date().toISOString(),
+  };
 }
 
 function mapDbCustomerToDTO(
@@ -1003,6 +1068,48 @@ export const db = {
     },
 
     async findCustomers(filters: CustomerFilters): Promise<PaginatedCustomersResult> {
+            // Handle timeFilter (Today, Yesterday, This Week, Last Week, This Month, Last Month)
+      if (filters.timeFilter && filters.timeFilter !== "all") {
+        const now = new Date();
+        let start: Date = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        let end: Date = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+        switch (filters.timeFilter) {
+          case "today":
+            start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            break;
+          case "yesterday": {
+            const y = new Date(now);
+            y.setDate(y.getDate() - 1);
+            start = new Date(y.getFullYear(), y.getMonth(), y.getDate());
+            end = new Date(y.getFullYear(), y.getMonth(), y.getDate(), 23, 59, 59, 999);
+            break;
+          }
+          case "thisWeek": {
+            const day = now.getDay();
+            const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+            start = new Date(now.getFullYear(), now.getMonth(), diff);
+            break;
+          }
+          case "lastWeek": {
+            const day = now.getDay();
+            const diff = now.getDate() - day - 6 + (day === 0 ? -6 : 1);
+            start = new Date(now.getFullYear(), now.getMonth(), diff);
+            end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6, 23, 59, 59, 999);
+            break;
+          }
+          case "thisMonth":
+            start = new Date(now.getFullYear(), now.getMonth(), 1);
+            break;
+          case "lastMonth":
+            start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            end = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+            break;
+        }
+        filters.startDate = start.toISOString();
+        filters.endDate = end.toISOString();
+      }
+
       const page = Math.max(1, filters.page || 1);
       const limit = Math.max(1, filters.limit || 10);
       const offset = (page - 1) * limit;
@@ -2051,6 +2158,337 @@ export const db = {
           values,
           dailyData,
         },
+      };
+    },
+  },
+  // --- REMINDERS MANAGEMENT MODULE ---
+  reminders: {
+    async findReminders(filters: ReminderFilters): Promise<{
+      success: boolean;
+      data: ReminderDTO[];
+      meta: {
+        total: number;
+        page: number;
+        limit: number;
+        totalPages: number;
+        stats: ReminderStats;
+      };
+    }> {
+      const page = Math.max(1, filters.page || 1);
+      const limit = Math.max(1, filters.limit || 50);
+      const offset = (page - 1) * limit;
+
+      const now = new Date();
+      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase();
+          let query = sb.from("reminders").select("*", { count: "exact" });
+
+          if (filters.search) {
+            const q = filters.search.trim();
+            query = query.or(`title.ilike.%${q}%,customer_name.ilike.%${q}%,customer_id.ilike.%${q}%`);
+          }
+          if (filters.customerId) {
+            query = query.eq("customer_id", filters.customerId);
+          }
+          if (filters.assignedStaff) {
+            query = query.eq("assigned_staff", filters.assignedStaff);
+          }
+          if (filters.priority) {
+            query = query.eq("priority", filters.priority);
+          }
+
+          if (filters.filter === "today") {
+            query = query.eq("reminder_date", todayStr).neq("status", "completed");
+          } else if (filters.filter === "upcoming") {
+            query = query.gt("reminder_date", todayStr).neq("status", "completed");
+          } else if (filters.filter === "overdue") {
+            query = query.lt("reminder_date", todayStr).neq("status", "completed");
+          } else if (filters.filter === "completed") {
+            query = query.eq("status", "completed");
+          }
+
+          const sortCol = filters.sortBy === "priority" ? "priority" : "reminder_date";
+          query = query.order(sortCol, { ascending: filters.sortOrder === "asc" });
+          query = query.range(offset, offset + limit - 1);
+
+          const { data, count, error } = await query;
+          if (!error && data) {
+            const { data: allRems } = await sb.from("reminders").select("reminder_date,status");
+            const allList = (allRems || []).map((r: any) => ({
+              date: r.reminder_date,
+              status: r.status,
+            }));
+
+            const completed = allList.filter((r) => r.status === "completed").length;
+            const today = allList.filter((r) => r.status !== "completed" && r.date === todayStr).length;
+            const overdue = allList.filter((r) => r.status !== "completed" && r.date < todayStr).length;
+            const upcoming = allList.filter((r) => r.status !== "completed" && r.date > todayStr).length;
+
+            const stats: ReminderStats = {
+              all: allList.length,
+              today,
+              upcoming,
+              overdue,
+              completed,
+              dueCount: today + overdue,
+            };
+
+            const total = count ?? data.length;
+            const totalPages = Math.ceil(total / limit) || 1;
+
+            return {
+              success: true,
+              data: data.map(mapDbReminderToDTO),
+              meta: {
+                total,
+                page,
+                limit,
+                totalPages,
+                stats,
+              },
+            };
+          }
+        } catch (e) {
+          logger.error("Error fetching reminders from Supabase:", e);
+        }
+      }
+
+      // In-memory fallback
+      let list = [...store.reminders];
+
+      if (filters.search) {
+        const q = filters.search.toLowerCase().trim();
+        list = list.filter(
+          (r) =>
+            r.title.toLowerCase().includes(q) ||
+            r.customerName.toLowerCase().includes(q) ||
+            r.customerId.toLowerCase().includes(q)
+        );
+      }
+      if (filters.customerId) {
+        list = list.filter((r) => r.customerId === filters.customerId);
+      }
+      if (filters.assignedStaff) {
+        list = list.filter((r) => r.assignedStaff === filters.assignedStaff);
+      }
+      if (filters.priority) {
+        list = list.filter((r) => r.priority === filters.priority);
+      }
+
+      if (filters.filter === "today") {
+        list = list.filter((r) => r.status !== "completed" && r.reminderDate === todayStr);
+      } else if (filters.filter === "upcoming") {
+        list = list.filter((r) => r.status !== "completed" && r.reminderDate > todayStr);
+      } else if (filters.filter === "overdue") {
+        list = list.filter((r) => r.status !== "completed" && r.reminderDate < todayStr);
+      } else if (filters.filter === "completed") {
+        list = list.filter((r) => r.status === "completed");
+      }
+
+      const sortBy = filters.sortBy || "reminderDate";
+      const isAsc = filters.sortOrder === "asc";
+      list.sort((a: any, b: any) => {
+        const valA = a[sortBy] ?? "";
+        const valB = b[sortBy] ?? "";
+        if (isAsc) return valA > valB ? 1 : -1;
+        return valA < valB ? 1 : -1;
+      });
+
+      const all = store.reminders.length;
+      const completed = store.reminders.filter((r) => r.status === "completed").length;
+      const today = store.reminders.filter((r) => r.status !== "completed" && r.reminderDate === todayStr).length;
+      const overdue = store.reminders.filter((r) => r.status !== "completed" && r.reminderDate < todayStr).length;
+      const upcoming = store.reminders.filter((r) => r.status !== "completed" && r.reminderDate > todayStr).length;
+
+      const stats: ReminderStats = {
+        all,
+        today,
+        upcoming,
+        overdue,
+        completed,
+        dueCount: today + overdue,
+      };
+
+      const total = list.length;
+      const totalPages = Math.ceil(total / limit) || 1;
+      const paginated = list.slice(offset, offset + limit);
+
+      return {
+        success: true,
+        data: paginated,
+        meta: {
+          total,
+          page,
+          limit,
+          totalPages,
+          stats,
+        },
+      };
+    },
+
+    async findById(id: string): Promise<ReminderDTO | null> {
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase();
+          const { data, error } = await sb.from("reminders").select("*").eq("id", id).maybeSingle();
+          if (!error && data) {
+            return mapDbReminderToDTO(data);
+          }
+        } catch (e) {
+          logger.error(`Error fetching reminder ${id} from Supabase:`, e);
+        }
+      }
+      return store.reminders.find((r) => r.id === id) || null;
+    },
+
+    async create(reminder: ReminderDTO): Promise<ReminderDTO> {
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase();
+          const { error } = await sb.from("reminders").insert({
+            id: reminder.id,
+            title: reminder.title,
+            customer_name: reminder.customerName,
+            customer_id: reminder.customerId,
+            order_id: reminder.orderId || "",
+            description: reminder.description || "",
+            reminder_date: reminder.reminderDate,
+            reminder_time: reminder.reminderTime,
+            assigned_staff: reminder.assignedStaff || "Unassigned",
+            priority: reminder.priority,
+            status: reminder.status,
+            completed_by: reminder.completedBy || "",
+            completed_at: reminder.completedAt || "",
+            notification_triggered: reminder.notificationTriggered ?? false,
+          });
+          if (error) {
+            logger.warn("Supabase reminders insert note:", error.message);
+          }
+        } catch (e) {
+          logger.error("Supabase create reminder exception:", e);
+        }
+      }
+
+      store.reminders.unshift(reminder);
+      return reminder;
+    },
+
+    async update(id: string, updates: Partial<ReminderDTO>): Promise<ReminderDTO | null> {
+      const existing = await this.findById(id);
+      if (!existing) return null;
+
+      const updated: ReminderDTO = {
+        ...existing,
+        ...updates,
+        updatedAt: new Date().toISOString(),
+      };
+
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase();
+          const patch: any = {
+            updated_at: updated.updatedAt,
+          };
+          if (updates.title !== undefined) patch.title = updates.title;
+          if (updates.customerName !== undefined) patch.customer_name = updates.customerName;
+          if (updates.customerId !== undefined) patch.customer_id = updates.customerId;
+          if (updates.orderId !== undefined) patch.order_id = updates.orderId;
+          if (updates.description !== undefined) patch.description = updates.description;
+          if (updates.reminderDate !== undefined) patch.reminder_date = updates.reminderDate;
+          if (updates.reminderTime !== undefined) patch.reminder_time = updates.reminderTime;
+          if (updates.assignedStaff !== undefined) patch.assigned_staff = updates.assignedStaff;
+          if (updates.priority !== undefined) patch.priority = updates.priority;
+          if (updates.status !== undefined) patch.status = updates.status;
+          if (updates.completedBy !== undefined) patch.completed_by = updates.completedBy;
+          if (updates.completedAt !== undefined) patch.completed_at = updates.completedAt;
+          if (updates.notificationTriggered !== undefined) patch.notification_triggered = updates.notificationTriggered;
+
+          const { error } = await sb.from("reminders").update(patch).eq("id", id);
+          if (error) {
+            logger.warn("Supabase reminders update note:", error.message);
+          }
+        } catch (e) {
+          logger.error("Supabase update reminder exception:", e);
+        }
+      }
+
+      const idx = store.reminders.findIndex((r) => r.id === id);
+      if (idx !== -1) {
+        store.reminders[idx] = updated;
+      } else {
+        store.reminders.push(updated);
+      }
+
+      return updated;
+    },
+
+    async delete(id: string): Promise<boolean> {
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase();
+          const { error } = await sb.from("reminders").delete().eq("id", id);
+          if (error) {
+            logger.warn("Supabase reminders delete note:", error.message);
+          }
+        } catch (e) {
+          logger.error("Supabase delete reminder exception:", e);
+        }
+      }
+
+      const prevLen = store.reminders.length;
+      store.reminders = store.reminders.filter((r) => r.id !== id);
+      return store.reminders.length < prevLen;
+    },
+
+    async getStats(): Promise<ReminderStats> {
+      const now = new Date();
+      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase();
+          const { data } = await sb.from("reminders").select("reminder_date,status");
+          if (data) {
+            const allList = data.map((r: any) => ({
+              date: r.reminder_date,
+              status: r.status,
+            }));
+
+            const completed = allList.filter((r) => r.status === "completed").length;
+            const today = allList.filter((r) => r.status !== "completed" && r.date === todayStr).length;
+            const overdue = allList.filter((r) => r.status !== "completed" && r.date < todayStr).length;
+            const upcoming = allList.filter((r) => r.status !== "completed" && r.date > todayStr).length;
+
+            return {
+              all: allList.length,
+              today,
+              upcoming,
+              overdue,
+              completed,
+              dueCount: today + overdue,
+            };
+          }
+        } catch (e) {
+          logger.error("Error fetching reminder stats from Supabase:", e);
+        }
+      }
+
+      const all = store.reminders.length;
+      const completed = store.reminders.filter((r) => r.status === "completed").length;
+      const today = store.reminders.filter((r) => r.status !== "completed" && r.reminderDate === todayStr).length;
+      const overdue = store.reminders.filter((r) => r.status !== "completed" && r.reminderDate < todayStr).length;
+      const upcoming = store.reminders.filter((r) => r.status !== "completed" && r.reminderDate > todayStr).length;
+
+      return {
+        all,
+        today,
+        upcoming,
+        overdue,
+        completed,
+        dueCount: today + overdue,
       };
     },
   },

@@ -2,6 +2,9 @@ export type UserRole = 'admin' | 'staff';
 export type PaymentStatus = 'Unpaid' | 'Partial' | 'Paid';
 export type OrderStatus = 'pending' | 'inProgress' | 'completed' | 'cancelled';
 
+export type ReminderPriority = 'low' | 'medium' | 'high' | 'urgent';
+export type ReminderStatus = 'pending' | 'completed' | 'overdue';
+
 export interface User {
   id: string;
   name: string;
@@ -66,6 +69,8 @@ export interface CustomerRow {
   alt_phone: string;
   address: string;
   pincode: string;
+  region?: string | null;
+  priority?: string | null;
   frame_size_summary: string;
   frame_type_summary: string;
   qty: number;
@@ -144,6 +149,8 @@ export interface CustomerResponseDTO {
   altPhone: string;
   address: string;
   pincode: string;
+  region?: string;
+  priority?: string;
   photoCount: number;
   photoNames: string[];
   photoUrls: string[];
@@ -169,6 +176,9 @@ export interface CustomerFilters {
   paymentStatus?: PaymentStatus;
   startDate?: string;
   endDate?: string;
+  region?: string;
+  priority?: string;
+  timeFilter?: 'today' | 'yesterday' | 'thisWeek' | 'lastWeek' | 'thisMonth' | 'lastMonth' | 'all';
   page?: number;
   limit?: number;
   sortBy?: string;
@@ -243,3 +253,61 @@ export interface ReportsSummary {
   };
 }
 
+export interface ReminderRow {
+  id: string;
+  title: string;
+  customer_name: string;
+  customer_id: string;
+  order_id: string;
+  description: string;
+  reminder_date: string;
+  reminder_time: string;
+  assigned_staff: string;
+  priority: ReminderPriority;
+  status: ReminderStatus;
+  completed_by?: string;
+  completed_at?: string;
+  notification_triggered: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReminderDTO {
+  id: string;
+  title: string;
+  customerName: string;
+  customerId: string;
+  orderId?: string;
+  description: string;
+  reminderDate: string;
+  reminderTime: string;
+  assignedStaff: string;
+  priority: ReminderPriority;
+  status: ReminderStatus;
+  completedBy?: string;
+  completedAt?: string;
+  notificationTriggered?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ReminderFilters {
+  filter?: 'all' | 'today' | 'upcoming' | 'overdue' | 'completed';
+  search?: string;
+  priority?: ReminderPriority;
+  assignedStaff?: string;
+  customerId?: string;
+  page?: number;
+  limit?: number;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+}
+
+export interface ReminderStats {
+  all: number;
+  today: number;
+  upcoming: number;
+  overdue: number;
+  completed: number;
+  dueCount: number;
+}

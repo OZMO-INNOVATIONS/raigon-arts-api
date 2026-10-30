@@ -16,6 +16,7 @@ import dashboardRoutes from './modules/dashboard/dashboard.routes.js';
 import reportsRoutes from './modules/reports/reports.routes.js';
 import whatsappRoutes from './modules/whatsapp/whatsapp.routes.js';
 import settingsRoutes from './modules/settings/settings.routes.js';
+import reminderRoutes from './modules/reminders/reminder.routes.js';
 
 export const app = express();
 
@@ -41,8 +42,8 @@ app.get(['/', '/health'], (_req, res) => {
   res.status(200).json({
     success: true,
     name: 'Raigon Art Backend REST API',
-    version: '2.0.0',
-    buildTag: '2026.10.23-realtime-orders-trajectory-v2',
+    version: '2.1.0',
+    buildTag: '2026.10.30-reminders-materials-catalogue-v2',
     status: 'ONLINE',
     storageMode: config.storage.mode,
     timestamp: new Date().toISOString(),
@@ -54,6 +55,8 @@ app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/customers', customerRoutes);
 app.use('/api/v1/storage', storageRoutes);
 app.use('/api/v1/frame-sizes', frameSizeRoutes);
+app.use('/api/v1/materials', frameSizeRoutes); // Material terminology alias
+app.use('/api/v1/reminders', reminderRoutes); // New Reminders Management Module
 app.use('/api/v1/dashboard', dashboardRoutes);
 app.use('/api/v1/reports', reportsRoutes);
 app.use('/api/v1/whatsapp', whatsappRoutes);
