@@ -1,11 +1,11 @@
 import { Router } from 'express';
 import { ReminderController } from './reminder.controller.js';
-import { authenticateToken } from '../../middleware/auth.middleware.js';
+import { optionalToken } from '../../middleware/auth.middleware.js';
 
 const router = Router();
 
-// All reminder endpoints require authentication (Admin or Staff)
-router.use(authenticateToken);
+// Apply optional auth token to all reminder routes (allows both Bearer and public app access)
+router.use(optionalToken);
 
 // Reminder Stats / Dashboard Summary
 router.get('/summary/stats', ReminderController.getStats);

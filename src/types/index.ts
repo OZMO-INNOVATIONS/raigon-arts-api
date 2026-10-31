@@ -284,9 +284,12 @@ export interface ReminderDTO {
   assignedStaff: string;
   priority: ReminderPriority;
   status: ReminderStatus;
+  isCompleted?: boolean;
   completedBy?: string;
   completedAt?: string;
   notificationTriggered?: boolean;
+  phone?: string;
+  region?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -310,4 +313,5 @@ export interface ReminderStats {
   overdue: number;
   completed: number;
   dueCount: number;
+  activeCount?: number;
 }

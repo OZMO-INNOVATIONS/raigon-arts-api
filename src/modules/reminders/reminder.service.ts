@@ -19,36 +19,52 @@ export class ReminderService {
     id?: string;
     title: string;
     customerName: string;
-    customerId: string;
+    customerId?: string;
     orderId?: string;
     description?: string;
     reminderDate: string;
-    reminderTime: string;
+    reminderTime?: string;
     assignedStaff?: string;
     priority?: ReminderPriority;
     status?: ReminderStatus;
+    isCompleted?: boolean;
+    phone?: string;
+    region?: string;
   }) {
     const reminderId = data.id || `REM-${Date.now()}`;
+    
+    // Normalize reminderDate to YYYY-MM-DD if ISO string passed
+    let normalizedDate = data.reminderDate;
+    if (normalizedDate.includes('T')) {
+      normalizedDate = normalizedDate.split('T')[0];
+    }
+
+    const isDone = data.isCompleted === true || data.status === 'completed';
+    const statusVal: ReminderStatus = isDone ? 'completed' : (data.status || 'pending');
+
     const reminder: ReminderDTO = {
       id: reminderId,
       title: data.title,
       customerName: data.customerName,
-      customerId: data.customerId,
+      customerId: data.customerId || '',
       orderId: data.orderId || '',
       description: data.description || '',
-      reminderDate: data.reminderDate,
-      reminderTime: data.reminderTime,
+      reminderDate: normalizedDate,
+      reminderTime: data.reminderTime || '10:00 AM',
       assignedStaff: data.assignedStaff || 'Unassigned',
       priority: data.priority || 'medium',
-      status: data.status || 'pending',
-      completedBy: '',
-      completedAt: '',
+      status: statusVal,
+      isCompleted: isDone,
+      completedBy: isDone ? 'Admin' : '',
+      completedAt: isDone ? new Date().toISOString() : '',
       notificationTriggered: false,
+      phone: data.phone || '',
+      region: data.region || '',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
-    logger.info(`[ReminderService] Creating reminder ${reminderId} for customer ${data.customerId}`);
+    logger.info(`[ReminderService] Creating reminder ${reminderId} for customer ${data.customerId || 'N/A'}`);
     return db.reminders.create(reminder);
   }
 
@@ -62,10 +78,24 @@ export class ReminderService {
       throw { status: 404, message: `Reminder with ID ${id} not found.` };
     }
 
-    // Auto-fill completion metadata if being marked completed
-    if (updates.status === 'completed' && existing.status !== 'completed') {
+    // Normalize reminderDate if updated
+    if (updates.reminderDate && updates.reminderDate.includes('T')) {
+      updates.reminderDate = updates.reminderDate.split('T')[0];
+    }
+
+    // Auto-sync isCompleted and status
+    if (updates.isCompleted === true || updates.status === 'completed') {
+      updates.status = 'completed';
+      updates.isCompleted = true;
       updates.completedBy = updates.completedBy || actorName || 'Authorized User';
       updates.completedAt = updates.completedAt || new Date().toISOString();
+    } else if (updates.isCompleted === false) {
+      updates.isCompleted = false;
+      if (updates.status === undefined) {
+        updates.status = 'pending';
+      }
+      updates.completedBy = '';
+      updates.completedAt = '';
     }
 
     updates.updatedAt = new Date().toISOString();

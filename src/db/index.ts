@@ -283,6 +283,7 @@ function normalizePhotoUrl(url: string | null | undefined): string {
 
 
 function mapDbReminderToDTO(r: any): ReminderDTO {
+  const isDone = r.status === "completed" || r.is_completed === true || r.isCompleted === true;
   return {
     id: r.id,
     title: r.title || "",
@@ -294,10 +295,13 @@ function mapDbReminderToDTO(r: any): ReminderDTO {
     reminderTime: r.reminder_time || r.reminderTime || "",
     assignedStaff: r.assigned_staff || r.assignedStaff || "Unassigned",
     priority: (r.priority || "medium") as ReminderPriority,
-    status: (r.status || "pending") as ReminderStatus,
+    status: isDone ? "completed" : ((r.status || "pending") as ReminderStatus),
+    isCompleted: isDone,
     completedBy: r.completed_by || r.completedBy || "",
     completedAt: r.completed_at || r.completedAt || "",
     notificationTriggered: Boolean(r.notification_triggered ?? r.notificationTriggered),
+    phone: r.phone || "",
+    region: r.region || "",
     createdAt: r.created_at || new Date().toISOString(),
     updatedAt: r.updated_at || new Date().toISOString(),
   };
@@ -444,6 +448,15 @@ function formatLocalDate(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+
+function getTodayDateString(): string {
+  try {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+  } catch {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  }
 }
 
 function parseOrderDay(dateVal: any): Date | null {
@@ -2178,8 +2191,7 @@ export const db = {
       const limit = Math.max(1, filters.limit || 50);
       const offset = (page - 1) * limit;
 
-      const now = new Date();
-      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      const todayStr = getTodayDateString();
 
       if (isSupabaseConfigured()) {
         try {
@@ -2188,7 +2200,7 @@ export const db = {
 
           if (filters.search) {
             const q = filters.search.trim();
-            query = query.or(`title.ilike.%${q}%,customer_name.ilike.%${q}%,customer_id.ilike.%${q}%`);
+            query = query.or(`title.ilike.%${q}%,customer_name.ilike.%${q}%,customer_id.ilike.%${q}%,phone.ilike.%${q}%`);
           }
           if (filters.customerId) {
             query = query.eq("customer_id", filters.customerId);
@@ -2201,13 +2213,13 @@ export const db = {
           }
 
           if (filters.filter === "today") {
-            query = query.eq("reminder_date", todayStr).neq("status", "completed");
+            query = query.or(`reminder_date.eq.${todayStr},reminder_date.ilike.${todayStr}%`).neq("status", "completed").neq("is_completed", true);
           } else if (filters.filter === "upcoming") {
-            query = query.gt("reminder_date", todayStr).neq("status", "completed");
+            query = query.gt("reminder_date", todayStr).neq("status", "completed").neq("is_completed", true);
           } else if (filters.filter === "overdue") {
-            query = query.lt("reminder_date", todayStr).neq("status", "completed");
+            query = query.lt("reminder_date", todayStr).neq("status", "completed").neq("is_completed", true);
           } else if (filters.filter === "completed") {
-            query = query.eq("status", "completed");
+            query = query.or("status.eq.completed,is_completed.eq.true");
           }
 
           const sortCol = filters.sortBy === "priority" ? "priority" : "reminder_date";
@@ -2216,16 +2228,17 @@ export const db = {
 
           const { data, count, error } = await query;
           if (!error && data) {
-            const { data: allRems } = await sb.from("reminders").select("reminder_date,status");
-            const allList = (allRems || []).map((r: any) => ({
-              date: r.reminder_date,
-              status: r.status,
-            }));
+            const { data: allRems } = await sb.from("reminders").select("reminder_date,status,is_completed");
+            const allList = (allRems || []).map((r: any) => {
+              const isDone = r.status === "completed" || r.is_completed === true;
+              const dateStr = (r.reminder_date || "").split("T")[0];
+              return { date: dateStr, isDone };
+            });
 
-            const completed = allList.filter((r) => r.status === "completed").length;
-            const today = allList.filter((r) => r.status !== "completed" && r.date === todayStr).length;
-            const overdue = allList.filter((r) => r.status !== "completed" && r.date < todayStr).length;
-            const upcoming = allList.filter((r) => r.status !== "completed" && r.date > todayStr).length;
+            const completed = allList.filter((r) => r.isDone).length;
+            const today = allList.filter((r) => !r.isDone && r.date === todayStr).length;
+            const overdue = allList.filter((r) => !r.isDone && r.date < todayStr && r.date !== "").length;
+            const upcoming = allList.filter((r) => !r.isDone && r.date > todayStr).length;
 
             const stats: ReminderStats = {
               all: allList.length,
@@ -2234,6 +2247,7 @@ export const db = {
               overdue,
               completed,
               dueCount: today + overdue,
+              activeCount: today + upcoming + overdue,
             };
 
             const total = count ?? data.length;
@@ -2265,7 +2279,8 @@ export const db = {
           (r) =>
             r.title.toLowerCase().includes(q) ||
             r.customerName.toLowerCase().includes(q) ||
-            r.customerId.toLowerCase().includes(q)
+            r.customerId.toLowerCase().includes(q) ||
+            (r.phone && r.phone.toLowerCase().includes(q))
         );
       }
       if (filters.customerId) {
@@ -2279,13 +2294,13 @@ export const db = {
       }
 
       if (filters.filter === "today") {
-        list = list.filter((r) => r.status !== "completed" && r.reminderDate === todayStr);
+        list = list.filter((r) => r.status !== "completed" && !r.isCompleted && (r.reminderDate || "").split("T")[0] === todayStr);
       } else if (filters.filter === "upcoming") {
-        list = list.filter((r) => r.status !== "completed" && r.reminderDate > todayStr);
+        list = list.filter((r) => r.status !== "completed" && !r.isCompleted && (r.reminderDate || "").split("T")[0] > todayStr);
       } else if (filters.filter === "overdue") {
-        list = list.filter((r) => r.status !== "completed" && r.reminderDate < todayStr);
+        list = list.filter((r) => r.status !== "completed" && !r.isCompleted && (r.reminderDate || "").split("T")[0] < todayStr);
       } else if (filters.filter === "completed") {
-        list = list.filter((r) => r.status === "completed");
+        list = list.filter((r) => r.status === "completed" || r.isCompleted === true);
       }
 
       const sortBy = filters.sortBy || "reminderDate";
@@ -2297,19 +2312,25 @@ export const db = {
         return valA < valB ? 1 : -1;
       });
 
-      const all = store.reminders.length;
-      const completed = store.reminders.filter((r) => r.status === "completed").length;
-      const today = store.reminders.filter((r) => r.status !== "completed" && r.reminderDate === todayStr).length;
-      const overdue = store.reminders.filter((r) => r.status !== "completed" && r.reminderDate < todayStr).length;
-      const upcoming = store.reminders.filter((r) => r.status !== "completed" && r.reminderDate > todayStr).length;
+      const allList = store.reminders.map((r) => {
+        const isDone = r.status === "completed" || r.isCompleted === true;
+        const dateStr = (r.reminderDate || "").split("T")[0];
+        return { date: dateStr, isDone };
+      });
+
+      const completed = allList.filter((r) => r.isDone).length;
+      const today = allList.filter((r) => !r.isDone && r.date === todayStr).length;
+      const overdue = allList.filter((r) => !r.isDone && r.date < todayStr && r.date !== "").length;
+      const upcoming = allList.filter((r) => !r.isDone && r.date > todayStr).length;
 
       const stats: ReminderStats = {
-        all,
+        all: allList.length,
         today,
         upcoming,
         overdue,
         completed,
         dueCount: today + overdue,
+        activeCount: today + upcoming + overdue,
       };
 
       const total = list.length;
@@ -2327,6 +2348,7 @@ export const db = {
           stats,
         },
       };
+
     },
 
     async findById(id: string): Promise<ReminderDTO | null> {
@@ -2360,9 +2382,12 @@ export const db = {
             assigned_staff: reminder.assignedStaff || "Unassigned",
             priority: reminder.priority,
             status: reminder.status,
+            is_completed: reminder.isCompleted ?? (reminder.status === "completed"),
             completed_by: reminder.completedBy || "",
             completed_at: reminder.completedAt || "",
             notification_triggered: reminder.notificationTriggered ?? false,
+            phone: reminder.phone || "",
+            region: reminder.region || "",
           });
           if (error) {
             logger.warn("Supabase reminders insert note:", error.message);
@@ -2405,6 +2430,9 @@ export const db = {
           if (updates.completedBy !== undefined) patch.completed_by = updates.completedBy;
           if (updates.completedAt !== undefined) patch.completed_at = updates.completedAt;
           if (updates.notificationTriggered !== undefined) patch.notification_triggered = updates.notificationTriggered;
+          if (updates.isCompleted !== undefined) patch.is_completed = updates.isCompleted;
+          if (updates.phone !== undefined) patch.phone = updates.phone;
+          if (updates.region !== undefined) patch.region = updates.region;
 
           const { error } = await sb.from("reminders").update(patch).eq("id", id);
           if (error) {
@@ -2444,23 +2472,23 @@ export const db = {
     },
 
     async getStats(): Promise<ReminderStats> {
-      const now = new Date();
-      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      const todayStr = getTodayDateString();
 
       if (isSupabaseConfigured()) {
         try {
           const sb = getSupabase();
-          const { data } = await sb.from("reminders").select("reminder_date,status");
+          const { data } = await sb.from("reminders").select("reminder_date,status,is_completed");
           if (data) {
-            const allList = data.map((r: any) => ({
-              date: r.reminder_date,
-              status: r.status,
-            }));
+            const allList = data.map((r: any) => {
+              const isDone = r.status === "completed" || r.is_completed === true;
+              const dateStr = (r.reminder_date || "").split("T")[0];
+              return { date: dateStr, isDone };
+            });
 
-            const completed = allList.filter((r) => r.status === "completed").length;
-            const today = allList.filter((r) => r.status !== "completed" && r.date === todayStr).length;
-            const overdue = allList.filter((r) => r.status !== "completed" && r.date < todayStr).length;
-            const upcoming = allList.filter((r) => r.status !== "completed" && r.date > todayStr).length;
+            const completed = allList.filter((r) => r.isDone).length;
+            const today = allList.filter((r) => !r.isDone && r.date === todayStr).length;
+            const overdue = allList.filter((r) => !r.isDone && r.date < todayStr && r.date !== "").length;
+            const upcoming = allList.filter((r) => !r.isDone && r.date > todayStr).length;
 
             return {
               all: allList.length,
@@ -2469,6 +2497,7 @@ export const db = {
               overdue,
               completed,
               dueCount: today + overdue,
+              activeCount: today + upcoming + overdue,
             };
           }
         } catch (e) {
@@ -2476,19 +2505,25 @@ export const db = {
         }
       }
 
-      const all = store.reminders.length;
-      const completed = store.reminders.filter((r) => r.status === "completed").length;
-      const today = store.reminders.filter((r) => r.status !== "completed" && r.reminderDate === todayStr).length;
-      const overdue = store.reminders.filter((r) => r.status !== "completed" && r.reminderDate < todayStr).length;
-      const upcoming = store.reminders.filter((r) => r.status !== "completed" && r.reminderDate > todayStr).length;
+      const allList = store.reminders.map((r) => {
+        const isDone = r.status === "completed" || r.isCompleted === true;
+        const dateStr = (r.reminderDate || "").split("T")[0];
+        return { date: dateStr, isDone };
+      });
+
+      const completed = allList.filter((r) => r.isDone).length;
+      const today = allList.filter((r) => !r.isDone && r.date === todayStr).length;
+      const overdue = allList.filter((r) => !r.isDone && r.date < todayStr && r.date !== "").length;
+      const upcoming = allList.filter((r) => !r.isDone && r.date > todayStr).length;
 
       return {
-        all,
+        all: allList.length,
         today,
         upcoming,
         overdue,
         completed,
         dueCount: today + overdue,
+        activeCount: today + upcoming + overdue,
       };
     },
   },

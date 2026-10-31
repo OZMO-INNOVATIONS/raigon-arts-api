@@ -24,13 +24,20 @@ async function runMigrations() {
     await client.connect();
     logger.info('Connected to PostgreSQL successfully.');
 
-    const schemaPath = path.resolve(process.cwd(), 'supabase/migrations/20261016_init_schema.sql');
+    const migrationsDir = path.resolve(process.cwd(), 'supabase/migrations');
     const storagePath = path.resolve(process.cwd(), 'supabase/storage_setup.sql');
 
-    logger.info(`Applying schema from ${schemaPath}...`);
-    const schemaSql = fs.readFileSync(schemaPath, 'utf8');
-    await client.query(schemaSql);
-    logger.info('Database tables, triggers, and indexes created successfully.');
+    if (fs.existsSync(migrationsDir)) {
+      const files = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).sort();
+      for (const file of files) {
+        const filePath = path.join(migrationsDir, file);
+        logger.info(`Applying migration from ${filePath}...`);
+        const sql = fs.readFileSync(filePath, 'utf8');
+        await client.query(sql);
+        logger.info(`Migration ${file} applied successfully.`);
+      }
+    }
+    logger.info('All database schema migrations, tables, triggers, and indexes created successfully.');
 
     if (fs.existsSync(storagePath)) {
       try {
