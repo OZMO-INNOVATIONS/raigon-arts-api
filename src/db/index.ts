@@ -19,7 +19,11 @@ import {
   ReminderStats,
   ReminderPriority,
   ReminderStatus,
+  TrashedCustomerDTO,
+  TrashedReminderDTO,
+  TrashResponseDTO,
 } from '../types/index.js';
+import { StorageService } from '../modules/storage/storage.service.js';
 import { logger } from '../utils/logger.js';
 import bcrypt from 'bcryptjs';
 
@@ -302,6 +306,8 @@ function mapDbReminderToDTO(r: any): ReminderDTO {
     notificationTriggered: Boolean(r.notification_triggered ?? r.notificationTriggered),
     phone: r.phone || "",
     region: r.region || "",
+    is_deleted: Boolean(r.is_deleted),
+    deleted_at: r.deleted_at || null,
     createdAt: r.created_at || new Date().toISOString(),
     updatedAt: r.updated_at || new Date().toISOString(),
   };
@@ -374,6 +380,8 @@ function mapDbCustomerToDTO(
     orderDate: c.order_date ? new Date(c.order_date).toISOString() : new Date().toISOString(),
     expectedDelivery: c.expected_delivery ? new Date(c.expected_delivery).toISOString() : null,
     frames: parsedFrames,
+    is_deleted: Boolean(c.is_deleted),
+    deleted_at: c.deleted_at || null,
     createdAt: c.created_at || new Date().toISOString(),
     updatedAt: c.updated_at || new Date().toISOString(),
   };
@@ -1139,7 +1147,8 @@ export const db = {
               customer_frames (*)
             `,
               { count: 'exact' }
-            );
+            )
+            .neq('is_deleted', true);
 
           if (filters.search) {
             const q = filters.search.trim();
@@ -1174,7 +1183,7 @@ export const db = {
 
           const { data, count, error } = await query;
           if (!error && data) {
-            const { data: allCusts } = await sb.from('customers').select('status');
+            const { data: allCusts } = await sb.from('customers').select('status').neq('is_deleted', true);
             const statuses = allCusts || [];
             const statusCounts = {
               all: statuses.length,
@@ -1208,7 +1217,7 @@ export const db = {
       }
 
       // Filter in-memory or database fallback
-      let list = [...store.customers];
+      let list = store.customers.filter((c: any) => !c.is_deleted);
 
       // Search (id, name, phone)
       if (filters.search) {
@@ -1299,9 +1308,11 @@ export const db = {
             `
             )
             .ilike('id', id)
+            .neq('is_deleted', true)
             .maybeSingle();
 
           if (!error && data) {
+            if (data.is_deleted) return null;
             return mapDbCustomerToDTO(data, data.customer_photos, data.customer_frames);
           }
         } catch (e) {
@@ -1309,7 +1320,7 @@ export const db = {
         }
       }
 
-      const found = store.customers.find((c) => c.id.toLowerCase() === id.toLowerCase());
+      const found = store.customers.find((c) => c.id.toLowerCase() === id.toLowerCase() && !c.is_deleted);
       return found || null;
     },
 
@@ -1713,20 +1724,22 @@ export const db = {
     async deleteCustomer(id: string): Promise<boolean> {
       let wasDeleted = false;
       const cleanId = id.trim();
+      const now = new Date().toISOString();
 
+      // Soft-delete: Move to trash with 14-day auto-purge retention
       // 1. Direct PostgreSQL pool execution if connected
       const pool = getDbPool();
       if (pool && isDbConnected()) {
         try {
-          await pool.query('DELETE FROM customer_photos WHERE LOWER(TRIM(customer_id)) = LOWER(TRIM($1))', [cleanId]);
-          await pool.query('DELETE FROM customer_frames WHERE LOWER(TRIM(customer_id)) = LOWER(TRIM($1))', [cleanId]);
-          await pool.query('DELETE FROM activity_logs WHERE LOWER(TRIM(customer_id)) = LOWER(TRIM($1))', [cleanId]);
-          const res = await pool.query('DELETE FROM customers WHERE LOWER(TRIM(id)) = LOWER(TRIM($1))', [cleanId]);
+          const res = await pool.query(
+            'UPDATE customers SET is_deleted = true, deleted_at = $1 WHERE LOWER(TRIM(id)) = LOWER(TRIM($2))',
+            [now, cleanId]
+          );
           if ((res.rowCount ?? 0) > 0) {
             wasDeleted = true;
           }
         } catch (e) {
-          logger.error('Error deleting customer from PostgreSQL pool:', e);
+          logger.error('Error soft-deleting customer in PostgreSQL pool:', e);
         }
       }
 
@@ -1734,34 +1747,31 @@ export const db = {
       if (isSupabaseConfigured()) {
         try {
           const sb = getSupabase();
-          // Clear dependent records first to ensure no foreign key deferrals
-          await sb.from('customer_photos').delete().or(`customer_id.eq.${cleanId},customer_id.ilike.${cleanId}`);
-          await sb.from('customer_frames').delete().or(`customer_id.eq.${cleanId},customer_id.ilike.${cleanId}`);
-          await sb.from('activity_logs').delete().or(`customer_id.eq.${cleanId},customer_id.ilike.${cleanId}`);
+          const { error } = await sb
+            .from('customers')
+            .update({ is_deleted: true, deleted_at: now })
+            .or(`id.eq.${cleanId},id.ilike.${cleanId}`);
 
-          const { error } = await sb.from('customers').delete().or(`id.eq.${cleanId},id.ilike.${cleanId}`);
           if (!error) {
             wasDeleted = true;
             await sb.from('activity_logs').insert({
               customer_id: cleanId,
-              action: 'DELETED',
-              details: { id: cleanId },
+              action: 'MOVED_TO_TRASH',
+              details: { id: cleanId, deleted_at: now },
             });
           } else {
-            logger.error('Error deleting customer from Supabase:', error);
+            logger.error('Error moving customer to trash in Supabase:', error);
           }
         } catch (e) {
-          logger.error('Error deleting customer from Supabase:', e);
+          logger.error('Error moving customer to trash in Supabase:', e);
         }
       }
 
-      // 3. Clear from in-memory cache
-      const initial = store.customers.length;
-      store.customers = store.customers.filter((c) => c.id.toLowerCase() !== cleanId.toLowerCase());
-      store.customerPhotos = store.customerPhotos.filter(
-        (p) => p.customer_id.toLowerCase() !== cleanId.toLowerCase()
-      );
-      if (store.customers.length < initial) {
+      // 3. In-memory cache update
+      const memCust = store.customers.find((c) => c.id.toLowerCase() === cleanId.toLowerCase());
+      if (memCust) {
+        memCust.is_deleted = true;
+        memCust.deleted_at = now;
         wasDeleted = true;
       }
 
@@ -1883,6 +1893,7 @@ export const db = {
           const { data: customers, error } = await sb
             .from('customers')
             .select('id, name, phone, frame_size_summary, frame_type_summary, qty, total, advance, balance, status, order_date')
+            .neq('is_deleted', true)
             .order('created_at', { ascending: false });
 
           if (!error && customers && customers.length > 0) {
@@ -1976,7 +1987,8 @@ export const db = {
           const sb = getSupabase();
           const { data, error } = await sb
             .from('customers')
-            .select('id, total, advance, status, frame_size_summary, qty, order_date');
+            .select('id, total, advance, status, frame_size_summary, qty, order_date')
+            .neq('is_deleted', true);
           if (!error && data) rawCustomers = data;
         } catch (e) {
           logger.error('Supabase reports.getSummary exception:', e);
@@ -2196,7 +2208,7 @@ export const db = {
       if (isSupabaseConfigured()) {
         try {
           const sb = getSupabase();
-          let query = sb.from("reminders").select("*", { count: "exact" });
+          let query = sb.from("reminders").select("*", { count: "exact" }).neq('is_deleted', true);
 
           if (filters.search) {
             const q = filters.search.trim();
@@ -2228,7 +2240,7 @@ export const db = {
 
           const { data, count, error } = await query;
           if (!error && data) {
-            const { data: allRems } = await sb.from("reminders").select("reminder_date,status,is_completed");
+            const { data: allRems } = await sb.from("reminders").select("reminder_date,status,is_completed").neq('is_deleted', true);
             const allList = (allRems || []).map((r: any) => {
               const isDone = r.status === "completed" || r.is_completed === true;
               const dateStr = (r.reminder_date || "").split("T")[0];
@@ -2271,7 +2283,7 @@ export const db = {
       }
 
       // In-memory fallback
-      let list = [...store.reminders];
+      let list = store.reminders.filter((r) => !r.is_deleted);
 
       if (filters.search) {
         const q = filters.search.toLowerCase().trim();
@@ -2355,15 +2367,16 @@ export const db = {
       if (isSupabaseConfigured()) {
         try {
           const sb = getSupabase();
-          const { data, error } = await sb.from("reminders").select("*").eq("id", id).maybeSingle();
+          const { data, error } = await sb.from("reminders").select("*").eq("id", id).neq('is_deleted', true).maybeSingle();
           if (!error && data) {
+            if (data.is_deleted) return null;
             return mapDbReminderToDTO(data);
           }
         } catch (e) {
           logger.error(`Error fetching reminder ${id} from Supabase:`, e);
         }
       }
-      return store.reminders.find((r) => r.id === id) || null;
+      return store.reminders.find((r) => r.id === id && !r.is_deleted) || null;
     },
 
     async create(reminder: ReminderDTO): Promise<ReminderDTO> {
@@ -2454,21 +2467,25 @@ export const db = {
     },
 
     async delete(id: string): Promise<boolean> {
+      const now = new Date().toISOString();
       if (isSupabaseConfigured()) {
         try {
           const sb = getSupabase();
-          const { error } = await sb.from("reminders").delete().eq("id", id);
+          const { error } = await sb.from("reminders").update({ is_deleted: true, deleted_at: now }).eq("id", id);
           if (error) {
-            logger.warn("Supabase reminders delete note:", error.message);
+            logger.warn("Supabase reminders soft delete note:", error.message);
           }
         } catch (e) {
-          logger.error("Supabase delete reminder exception:", e);
+          logger.error("Supabase soft delete reminder exception:", e);
         }
       }
 
-      const prevLen = store.reminders.length;
-      store.reminders = store.reminders.filter((r) => r.id !== id);
-      return store.reminders.length < prevLen;
+      const memRem = store.reminders.find((r) => r.id === id);
+      if (memRem) {
+        memRem.is_deleted = true;
+        memRem.deleted_at = now;
+      }
+      return true;
     },
 
     async getStats(): Promise<ReminderStats> {
@@ -2477,7 +2494,7 @@ export const db = {
       if (isSupabaseConfigured()) {
         try {
           const sb = getSupabase();
-          const { data } = await sb.from("reminders").select("reminder_date,status,is_completed");
+          const { data } = await sb.from("reminders").select("reminder_date,status,is_completed").neq('is_deleted', true);
           if (data) {
             const allList = data.map((r: any) => {
               const isDone = r.status === "completed" || r.is_completed === true;
@@ -2525,6 +2542,359 @@ export const db = {
         dueCount: today + overdue,
         activeCount: today + upcoming + overdue,
       };
+    },
+  },
+
+  // --- TRASH & RECYCLE BIN MODULE (14-DAY RETENTION) ---
+  trash: {
+    async getTrashItems(): Promise<TrashResponseDTO> {
+      // Auto-purge items that have been in trash for more than 14 days
+      await this.purgeExpiredTrash(14);
+
+      const now = Date.now();
+      let trashedOrders: TrashedCustomerDTO[] = [];
+      let trashedReminders: TrashedReminderDTO[] = [];
+
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase();
+
+          // 1. Fetch trashed orders
+          const { data: cData, error: cErr } = await sb
+            .from('customers')
+            .select(`
+              *,
+              customer_photos (*),
+              customer_frames (*)
+            `)
+            .eq('is_deleted', true)
+            .order('deleted_at', { ascending: false });
+
+          if (!cErr && cData) {
+            trashedOrders = cData.map((c: any) => {
+              const dto = mapDbCustomerToDTO(c, c.customer_photos, c.customer_frames);
+              const deletedTime = c.deleted_at ? new Date(c.deleted_at).getTime() : now;
+              const daysPassed = Math.floor((now - deletedTime) / (24 * 60 * 60 * 1000));
+              const daysRemaining = Math.max(0, 14 - daysPassed);
+              return {
+                ...dto,
+                is_deleted: true,
+                deleted_at: c.deleted_at || new Date().toISOString(),
+                daysRemaining,
+              };
+            });
+          }
+
+          // 2. Fetch trashed reminders
+          const { data: rData, error: rErr } = await sb
+            .from('reminders')
+            .select('*')
+            .eq('is_deleted', true)
+            .order('deleted_at', { ascending: false });
+
+          if (!rErr && rData) {
+            trashedReminders = rData.map((r: any) => {
+              const dto = mapDbReminderToDTO(r);
+              const deletedTime = r.deleted_at ? new Date(r.deleted_at).getTime() : now;
+              const daysPassed = Math.floor((now - deletedTime) / (24 * 60 * 60 * 1000));
+              const daysRemaining = Math.max(0, 14 - daysPassed);
+              return {
+                ...dto,
+                is_deleted: true,
+                deleted_at: r.deleted_at || new Date().toISOString(),
+                daysRemaining,
+              };
+            });
+          }
+        } catch (e) {
+          logger.error('Error fetching trash items from Supabase:', e);
+        }
+      }
+
+      // In-memory fallback
+      if (trashedOrders.length === 0) {
+        trashedOrders = store.customers
+          .filter((c: any) => c.is_deleted)
+          .map((c: any) => {
+            const deletedTime = c.deleted_at ? new Date(c.deleted_at).getTime() : now;
+            const daysPassed = Math.floor((now - deletedTime) / (24 * 60 * 60 * 1000));
+            return {
+              ...c,
+              is_deleted: true,
+              deleted_at: c.deleted_at || new Date().toISOString(),
+              daysRemaining: Math.max(0, 14 - daysPassed),
+            };
+          });
+      }
+
+      if (trashedReminders.length === 0) {
+        trashedReminders = store.reminders
+          .filter((r: any) => r.is_deleted)
+          .map((r: any) => {
+            const deletedTime = r.deleted_at ? new Date(r.deleted_at).getTime() : now;
+            const daysPassed = Math.floor((now - deletedTime) / (24 * 60 * 60 * 1000));
+            return {
+              ...r,
+              is_deleted: true,
+              deleted_at: r.deleted_at || new Date().toISOString(),
+              daysRemaining: Math.max(0, 14 - daysPassed),
+            };
+          });
+      }
+
+      return {
+        orders: trashedOrders,
+        reminders: trashedReminders,
+        totalCount: trashedOrders.length + trashedReminders.length,
+        retentionDays: 14,
+      };
+    },
+
+    async restoreCustomer(id: string): Promise<boolean> {
+      const cleanId = id.trim();
+      let wasRestored = false;
+
+      const pool = getDbPool();
+      if (pool && isDbConnected()) {
+        try {
+          const res = await pool.query(
+            'UPDATE customers SET is_deleted = false, deleted_at = NULL WHERE LOWER(TRIM(id)) = LOWER(TRIM($1))',
+            [cleanId]
+          );
+          if ((res.rowCount ?? 0) > 0) wasRestored = true;
+        } catch (e) {
+          logger.error('Error restoring customer via PG pool:', e);
+        }
+      }
+
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase();
+          const { error } = await sb
+            .from('customers')
+            .update({ is_deleted: false, deleted_at: null })
+            .or(`id.eq.${cleanId},id.ilike.${cleanId}`);
+
+          if (!error) {
+            wasRestored = true;
+            await sb.from('activity_logs').insert({
+              customer_id: cleanId,
+              action: 'RESTORED_FROM_TRASH',
+              details: { id: cleanId },
+            });
+          }
+        } catch (e) {
+          logger.error('Error restoring customer in Supabase:', e);
+        }
+      }
+
+      const memCust = store.customers.find((c: any) => c.id.toLowerCase() === cleanId.toLowerCase());
+      if (memCust) {
+        memCust.is_deleted = false;
+        memCust.deleted_at = null;
+        wasRestored = true;
+      }
+
+      if (wasRestored) {
+        db.frameSizes.syncOrdersCount().catch(() => {});
+        invalidateStatsCache();
+      }
+
+      return wasRestored;
+    },
+
+    async restoreReminder(id: string): Promise<boolean> {
+      const cleanId = id.trim();
+      let wasRestored = false;
+
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase();
+          const { error } = await sb
+            .from('reminders')
+            .update({ is_deleted: false, deleted_at: null })
+            .eq('id', cleanId);
+
+          if (!error) wasRestored = true;
+        } catch (e) {
+          logger.error('Error restoring reminder in Supabase:', e);
+        }
+      }
+
+      const memRem = store.reminders.find((r: any) => r.id === cleanId);
+      if (memRem) {
+        memRem.is_deleted = false;
+        memRem.deleted_at = null;
+        wasRestored = true;
+      }
+
+      return wasRestored;
+    },
+
+    async permanentlyDeleteCustomer(id: string): Promise<boolean> {
+      const cleanId = id.trim();
+
+      // 1. Delete attached photos from storage
+      try {
+        if (isSupabaseConfigured()) {
+          const sb = getSupabase();
+          const { data: photos } = await sb
+            .from('customer_photos')
+            .select('file_url')
+            .or(`customer_id.eq.${cleanId},customer_id.ilike.${cleanId}`);
+
+          if (photos && photos.length > 0) {
+            for (const p of photos) {
+              if (p.file_url) await StorageService.deleteFile(p.file_url);
+            }
+          }
+        }
+      } catch (err) {
+        logger.warn('Error purging photos during permanent customer delete:', err);
+      }
+
+      // 2. Direct PostgreSQL pool execution if connected
+      const pool = getDbPool();
+      if (pool && isDbConnected()) {
+        try {
+          await pool.query('DELETE FROM customer_photos WHERE LOWER(TRIM(customer_id)) = LOWER(TRIM($1))', [cleanId]);
+          await pool.query('DELETE FROM customer_frames WHERE LOWER(TRIM(customer_id)) = LOWER(TRIM($1))', [cleanId]);
+          await pool.query('DELETE FROM activity_logs WHERE LOWER(TRIM(customer_id)) = LOWER(TRIM($1))', [cleanId]);
+          await pool.query('DELETE FROM customers WHERE LOWER(TRIM(id)) = LOWER(TRIM($1))', [cleanId]);
+        } catch (e) {
+          logger.error('Error permanently deleting customer via PG pool:', e);
+        }
+      }
+
+      // 3. Supabase PostgREST client execution
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase();
+          await sb.from('customer_photos').delete().or(`customer_id.eq.${cleanId},customer_id.ilike.${cleanId}`);
+          await sb.from('customer_frames').delete().or(`customer_id.eq.${cleanId},customer_id.ilike.${cleanId}`);
+          await sb.from('activity_logs').delete().or(`customer_id.eq.${cleanId},customer_id.ilike.${cleanId}`);
+          await sb.from('customers').delete().or(`id.eq.${cleanId},id.ilike.${cleanId}`);
+        } catch (e) {
+          logger.error('Error permanently deleting customer from Supabase:', e);
+        }
+      }
+
+      // 4. Memory cache
+      store.customers = store.customers.filter((c: any) => c.id.toLowerCase() !== cleanId.toLowerCase());
+      store.customerPhotos = store.customerPhotos.filter(
+        (p: any) => p.customer_id.toLowerCase() !== cleanId.toLowerCase()
+      );
+
+      db.frameSizes.syncOrdersCount().catch(() => {});
+      invalidateStatsCache();
+      return true;
+    },
+
+    async permanentlyDeleteReminder(id: string): Promise<boolean> {
+      const cleanId = id.trim();
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase();
+          await sb.from('reminders').delete().eq('id', cleanId);
+        } catch (e) {
+          logger.error('Error permanently deleting reminder from Supabase:', e);
+        }
+      }
+
+      store.reminders = store.reminders.filter((r: any) => r.id !== cleanId);
+      return true;
+    },
+
+    async emptyTrash(): Promise<{ purgedOrders: number; purgedReminders: number }> {
+      let purgedOrders = 0;
+      let purgedReminders = 0;
+
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase();
+          const { data: trashedC } = await sb.from('customers').select('id').eq('is_deleted', true);
+          if (trashedC && trashedC.length > 0) {
+            for (const c of trashedC) {
+              await this.permanentlyDeleteCustomer(c.id);
+              purgedOrders++;
+            }
+          }
+
+          const { data: trashedR } = await sb.from('reminders').select('id').eq('is_deleted', true);
+          if (trashedR && trashedR.length > 0) {
+            for (const r of trashedR) {
+              await this.permanentlyDeleteReminder(r.id);
+              purgedReminders++;
+            }
+          }
+        } catch (e) {
+          logger.error('Error emptying trash from Supabase:', e);
+        }
+      }
+
+      // Memory fallback
+      const memC = store.customers.filter((c: any) => c.is_deleted);
+      for (const c of memC) {
+        await this.permanentlyDeleteCustomer(c.id);
+        purgedOrders++;
+      }
+      const memR = store.reminders.filter((r: any) => r.is_deleted);
+      for (const r of memR) {
+        await this.permanentlyDeleteReminder(r.id);
+        purgedReminders++;
+      }
+
+      return { purgedOrders, purgedReminders };
+    },
+
+    async purgeExpiredTrash(retentionDays = 14): Promise<{ purgedOrders: number; purgedReminders: number }> {
+      const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+      let purgedOrders = 0;
+      let purgedReminders = 0;
+
+      if (isSupabaseConfigured()) {
+        try {
+          const sb = getSupabase();
+
+          // Expired customers
+          const { data: expiredC } = await sb
+            .from('customers')
+            .select('id')
+            .eq('is_deleted', true)
+            .lte('deleted_at', cutoff);
+
+          if (expiredC && expiredC.length > 0) {
+            for (const c of expiredC) {
+              await this.permanentlyDeleteCustomer(c.id);
+              purgedOrders++;
+            }
+          }
+
+          // Expired reminders
+          const { data: expiredR } = await sb
+            .from('reminders')
+            .select('id')
+            .eq('is_deleted', true)
+            .lte('deleted_at', cutoff);
+
+          if (expiredR && expiredR.length > 0) {
+            for (const r of expiredR) {
+              await this.permanentlyDeleteReminder(r.id);
+              purgedReminders++;
+            }
+          }
+
+          if (purgedOrders > 0 || purgedReminders > 0) {
+            logger.info(
+              `[Auto-Purge Trash] Purged ${purgedOrders} orders and ${purgedReminders} reminders older than ${retentionDays} days.`
+            );
+          }
+        } catch (e) {
+          logger.error('Error during purgeExpiredTrash:', e);
+        }
+      }
+
+      return { purgedOrders, purgedReminders };
     },
   },
 };

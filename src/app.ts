@@ -17,6 +17,7 @@ import reportsRoutes from './modules/reports/reports.routes.js';
 import whatsappRoutes from './modules/whatsapp/whatsapp.routes.js';
 import settingsRoutes from './modules/settings/settings.routes.js';
 import reminderRoutes from './modules/reminders/reminder.routes.js';
+import trashRoutes from './modules/trash/trash.routes.js';
 
 export const app = express();
 
@@ -61,6 +62,7 @@ app.use('/api/v1/dashboard', dashboardRoutes);
 app.use('/api/v1/reports', reportsRoutes);
 app.use('/api/v1/whatsapp', whatsappRoutes);
 app.use('/api/v1/settings', settingsRoutes);
+app.use('/api/v1/trash', trashRoutes);
 
 // Catch-all 404 handler
 app.use(notFoundHandler);

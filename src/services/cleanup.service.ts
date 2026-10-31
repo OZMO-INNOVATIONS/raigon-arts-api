@@ -131,6 +131,14 @@ export class CleanupService {
 
     const runCheck = async () => {
       try {
+        // 1. Auto-purge trashed items (orders and reminders) older than 14 days
+        try {
+          await db.trash.purgeExpiredTrash(14);
+        } catch (trashErr) {
+          logger.error('[Auto-Cleanup] Error purging expired trash:', trashErr);
+        }
+
+        // 2. Global retention policy check
         const policy = await this.getRetentionPolicy();
         if (policy.autoCleanupEnabled) {
           await this.executeCleanup();

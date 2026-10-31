@@ -79,7 +79,10 @@ export class StorageService {
   }
 
   static async deleteFile(filePath: string): Promise<boolean> {
-    const cleanPath = filePath.replace(/^\/+/, '');
+    const cleanPath = filePath
+      .replace(/^https?:\/\/[^/]+\/uploads\//, '')
+      .replace(/^https?:\/\/[^/]+\/storage\/v1\/object\/public\/[^/]+\//, '')
+      .replace(/^\/+/, '');
 
     if (config.storage.mode === 'supabase' && isSupabaseConfigured()) {
       try {

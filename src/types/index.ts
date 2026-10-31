@@ -166,6 +166,8 @@ export interface CustomerResponseDTO {
   orderDate: string;
   expectedDelivery: string | null;
   frames: CustomerFrameDTO[];
+  is_deleted?: boolean;
+  deleted_at?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -290,6 +292,8 @@ export interface ReminderDTO {
   notificationTriggered?: boolean;
   phone?: string;
   region?: string;
+  is_deleted?: boolean;
+  deleted_at?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -314,4 +318,24 @@ export interface ReminderStats {
   completed: number;
   dueCount: number;
   activeCount?: number;
+}
+
+// --- TRASH & RECYCLE BIN TYPES (14-DAY LIFECYCLE) ---
+export interface TrashedCustomerDTO extends CustomerResponseDTO {
+  is_deleted: boolean;
+  deleted_at: string;
+  daysRemaining: number;
+}
+
+export interface TrashedReminderDTO extends ReminderDTO {
+  is_deleted: boolean;
+  deleted_at: string;
+  daysRemaining: number;
+}
+
+export interface TrashResponseDTO {
+  orders: TrashedCustomerDTO[];
+  reminders: TrashedReminderDTO[];
+  totalCount: number;
+  retentionDays: number;
 }
