@@ -43,7 +43,7 @@ app.get(['/', '/health'], (_req, res) => {
     success: true,
     name: 'Raigon Art Backend REST API',
     version: '2.1.0',
-    buildTag: '2026.10.30-reminders-materials-catalogue-v2',
+    buildTag: '2026.10.31-reminders-v2.1.0',
     status: 'ONLINE',
     storageMode: config.storage.mode,
     timestamp: new Date().toISOString(),
