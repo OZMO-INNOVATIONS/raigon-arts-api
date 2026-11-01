@@ -19,6 +19,8 @@ export const createReminderSchema = z.object({
   voiceDurationSeconds: z.coerce.number().optional().default(0),
   voice_url: z.string().optional(),
   voice_duration_seconds: z.coerce.number().optional(),
+  voiceNotes: z.array(z.any()).optional(),
+  voice_notes: z.array(z.any()).optional(),
 });
 
 export const updateReminderSchema = z.object({
@@ -42,6 +44,8 @@ export const updateReminderSchema = z.object({
   voiceDurationSeconds: z.coerce.number().optional(),
   voice_url: z.string().optional(),
   voice_duration_seconds: z.coerce.number().optional(),
+  voiceNotes: z.array(z.any()).optional(),
+  voice_notes: z.array(z.any()).optional(),
 });
 
 export const reminderQuerySchema = z.object({

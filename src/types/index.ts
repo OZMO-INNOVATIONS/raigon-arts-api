@@ -282,6 +282,7 @@ export interface ReminderRow {
   notification_triggered: boolean;
   voice_url?: string;
   voice_duration_seconds?: number;
+  voice_notes?: OrderVoiceNote[];
   created_at: string;
   updated_at: string;
 }
@@ -306,6 +307,7 @@ export interface ReminderDTO {
   region?: string;
   voiceUrl?: string;
   voiceDurationSeconds?: number;
+  voiceNotes?: OrderVoiceNote[];
   is_deleted?: boolean;
   deleted_at?: string | null;
   createdAt: string;

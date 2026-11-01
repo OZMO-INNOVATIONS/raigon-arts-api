@@ -288,6 +288,37 @@ function normalizePhotoUrl(url: string | null | undefined): string {
 
 function mapDbReminderToDTO(r: any): ReminderDTO {
   const isDone = r.status === "completed" || r.is_completed === true || r.isCompleted === true;
+
+  let voiceNotes: any[] = [];
+  if (r.voice_notes) {
+    if (Array.isArray(r.voice_notes)) {
+      voiceNotes = r.voice_notes;
+    } else if (typeof r.voice_notes === 'string') {
+      try {
+        voiceNotes = JSON.parse(r.voice_notes);
+      } catch (_) { }
+    }
+  } else if (r.voiceNotes && Array.isArray(r.voiceNotes)) {
+    voiceNotes = r.voiceNotes;
+  }
+
+  const voiceUrl = r.voice_url || r.voiceUrl || (voiceNotes.length > 0 ? voiceNotes[0].url : "");
+  const voiceDurationSeconds = Number(
+    r.voice_duration_seconds || r.voiceDurationSeconds || (voiceNotes.length > 0 ? voiceNotes[0].durationSeconds : 0)
+  );
+
+  if (voiceNotes.length === 0 && voiceUrl) {
+    voiceNotes = [
+      {
+        id: `voice_${r.id}_1`,
+        url: voiceUrl,
+        name: 'Voice Note #1',
+        durationSeconds: voiceDurationSeconds,
+        createdAt: r.created_at || new Date().toISOString(),
+      },
+    ];
+  }
+
   return {
     id: r.id,
     title: r.title || "",
@@ -306,8 +337,9 @@ function mapDbReminderToDTO(r: any): ReminderDTO {
     notificationTriggered: Boolean(r.notification_triggered ?? r.notificationTriggered),
     phone: r.phone || "",
     region: r.region || "",
-    voiceUrl: r.voice_url || r.voiceUrl || "",
-    voiceDurationSeconds: Number(r.voice_duration_seconds || r.voiceDurationSeconds || 0),
+    voiceUrl,
+    voiceDurationSeconds,
+    voiceNotes,
     is_deleted: Boolean(r.is_deleted),
     deleted_at: r.deleted_at || null,
     createdAt: r.created_at || new Date().toISOString(),
@@ -2406,55 +2438,61 @@ export const db = {
       if (isSupabaseConfigured()) {
         try {
           const sb = getSupabase();
-            const { error } = await sb.from("reminders").upsert({
-              id: reminder.id,
-              title: reminder.title,
-              customer_name: reminder.customerName,
-              customer_id: reminder.customerId,
-              order_id: reminder.orderId || "",
-              description: reminder.description || "",
-              reminder_date: reminder.reminderDate,
-              reminder_time: reminder.reminderTime,
-              assigned_staff: reminder.assignedStaff || "Unassigned",
-              priority: reminder.priority,
-              status: reminder.status,
-              is_completed: reminder.isCompleted ?? (reminder.status === "completed"),
-              completed_by: reminder.completedBy || "",
-              completed_at: reminder.completedAt || "",
-              notification_triggered: reminder.notificationTriggered ?? false,
-              phone: reminder.phone || "",
-              region: reminder.region || "",
-              voice_url: reminder.voiceUrl || "",
-              voice_duration_seconds: reminder.voiceDurationSeconds || 0,
-            });
-            if(error) {
-              logger.warn("Supabase reminders upsert note:", error.message);
-            }
-          } catch (e) {
-            logger.error("Supabase create reminder exception:", e);
+          const rawVNotes = (reminder as any).voiceNotes || (reminder as any).voice_notes;
+          const voiceNotes = Array.isArray(rawVNotes) ? rawVNotes : [];
+          const primaryVoiceUrl = reminder.voiceUrl || (voiceNotes.length > 0 ? voiceNotes[0].url : "");
+          const primaryDuration = reminder.voiceDurationSeconds || (voiceNotes.length > 0 ? voiceNotes[0].durationSeconds : 0);
+
+          const { error } = await sb.from("reminders").upsert({
+            id: reminder.id,
+            title: reminder.title,
+            customer_name: reminder.customerName,
+            customer_id: reminder.customerId,
+            order_id: reminder.orderId || "",
+            description: reminder.description || "",
+            reminder_date: reminder.reminderDate,
+            reminder_time: reminder.reminderTime,
+            assigned_staff: reminder.assignedStaff || "Unassigned",
+            priority: reminder.priority,
+            status: reminder.status,
+            is_completed: reminder.isCompleted ?? (reminder.status === "completed"),
+            completed_by: reminder.completedBy || "",
+            completed_at: reminder.completedAt ? reminder.completedAt : null,
+            notification_triggered: reminder.notificationTriggered ?? false,
+            phone: reminder.phone || "",
+            region: reminder.region || "",
+            voice_url: primaryVoiceUrl,
+            voice_duration_seconds: primaryDuration,
+            voice_notes: voiceNotes,
+          });
+          if (error) {
+            logger.warn("Supabase reminders upsert note:", error.message);
           }
+        } catch (e) {
+          logger.error("Supabase create reminder exception:", e);
         }
+      }
 
-        const existingIdx = store.reminders.findIndex((r) => r.id === reminder.id);
-        if (existingIdx !== -1) {
-          store.reminders[existingIdx] = reminder;
-        } else {
-          store.reminders.unshift(reminder);
-        }
-        return reminder;
-      },
+      const existingIdx = store.reminders.findIndex((r) => r.id === reminder.id);
+      if (existingIdx !== -1) {
+        store.reminders[existingIdx] = reminder;
+      } else {
+        store.reminders.unshift(reminder);
+      }
+      return reminder;
+    },
 
-    async update(id: string, updates: Partial<ReminderDTO>): Promise < ReminderDTO | null > {
-        const existing = await this.findById(id);
-        if(!existing) return null;
+    async update(id: string, updates: Partial<ReminderDTO>): Promise<ReminderDTO | null> {
+      const existing = await this.findById(id);
+      if (!existing) return null;
 
-        const updated: ReminderDTO = {
-          ...existing,
-          ...updates,
-          updatedAt: new Date().toISOString(),
-        };
+      const updated: ReminderDTO = {
+        ...existing,
+        ...updates,
+        updatedAt: new Date().toISOString(),
+      };
 
-        if(isSupabaseConfigured()) {
+      if (isSupabaseConfigured()) {
         try {
           const sb = getSupabase();
           const patch: any = {
@@ -2478,6 +2516,14 @@ export const db = {
           if (updates.region !== undefined) patch.region = updates.region;
           if (updates.voiceUrl !== undefined) patch.voice_url = updates.voiceUrl;
           if (updates.voiceDurationSeconds !== undefined) patch.voice_duration_seconds = updates.voiceDurationSeconds;
+          if (updates.voiceNotes !== undefined || (updates as any).voice_notes !== undefined) {
+            const vNotes = updates.voiceNotes ?? (updates as any).voice_notes;
+            patch.voice_notes = Array.isArray(vNotes) ? vNotes : [];
+            if (patch.voice_notes.length > 0 && !patch.voice_url) {
+              patch.voice_url = patch.voice_notes[0].url;
+              patch.voice_duration_seconds = patch.voice_notes[0].durationSeconds;
+            }
+          }
 
           const { error } = await sb.from("reminders").update(patch).eq("id", id);
           if (error) {

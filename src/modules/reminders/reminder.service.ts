@@ -49,6 +49,20 @@ export class ReminderService {
     const voiceUrl = data.voiceUrl || data.voice_url || '';
     const voiceDurationSeconds = Number(data.voiceDurationSeconds ?? data.voice_duration_seconds ?? 0);
 
+    const rawVoiceNotes = (data as any).voiceNotes || (data as any).voice_notes;
+    let voiceNotes: any[] = Array.isArray(rawVoiceNotes) ? rawVoiceNotes : [];
+    if (voiceNotes.length === 0 && voiceUrl) {
+      voiceNotes = [
+        {
+          id: `voice_${reminderId}_1`,
+          url: voiceUrl,
+          name: 'Voice Note #1',
+          durationSeconds: voiceDurationSeconds,
+          createdAt: new Date().toISOString(),
+        },
+      ];
+    }
+
     const reminder: ReminderDTO = {
       id: reminderId,
       title: data.title,
@@ -69,6 +83,7 @@ export class ReminderService {
       region: data.region || '',
       voiceUrl,
       voiceDurationSeconds,
+      voiceNotes,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -112,6 +127,10 @@ export class ReminderService {
     }
     if ((updates as any).voice_duration_seconds !== undefined && updates.voiceDurationSeconds === undefined) {
       updates.voiceDurationSeconds = Number((updates as any).voice_duration_seconds);
+    }
+    if ((updates as any).voiceNotes !== undefined || (updates as any).voice_notes !== undefined) {
+      const vNotes = (updates as any).voiceNotes ?? (updates as any).voice_notes;
+      updates.voiceNotes = Array.isArray(vNotes) ? vNotes : [];
     }
 
     updates.updatedAt = new Date().toISOString();
