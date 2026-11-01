@@ -30,6 +30,10 @@ export class ReminderService {
     isCompleted?: boolean;
     phone?: string;
     region?: string;
+    voiceUrl?: string;
+    voiceDurationSeconds?: number;
+    voice_url?: string;
+    voice_duration_seconds?: number;
   }) {
     const reminderId = data.id || `REM-${Date.now()}`;
     
@@ -41,6 +45,9 @@ export class ReminderService {
 
     const isDone = data.isCompleted === true || data.status === 'completed';
     const statusVal: ReminderStatus = isDone ? 'completed' : (data.status || 'pending');
+
+    const voiceUrl = data.voiceUrl || data.voice_url || '';
+    const voiceDurationSeconds = Number(data.voiceDurationSeconds ?? data.voice_duration_seconds ?? 0);
 
     const reminder: ReminderDTO = {
       id: reminderId,
@@ -60,6 +67,8 @@ export class ReminderService {
       notificationTriggered: false,
       phone: data.phone || '',
       region: data.region || '',
+      voiceUrl,
+      voiceDurationSeconds,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -96,6 +105,13 @@ export class ReminderService {
       }
       updates.completedBy = '';
       updates.completedAt = '';
+    }
+
+    if ((updates as any).voice_url !== undefined && updates.voiceUrl === undefined) {
+      updates.voiceUrl = (updates as any).voice_url;
+    }
+    if ((updates as any).voice_duration_seconds !== undefined && updates.voiceDurationSeconds === undefined) {
+      updates.voiceDurationSeconds = Number((updates as any).voice_duration_seconds);
     }
 
     updates.updatedAt = new Date().toISOString();

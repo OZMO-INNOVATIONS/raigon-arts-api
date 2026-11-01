@@ -306,6 +306,8 @@ function mapDbReminderToDTO(r: any): ReminderDTO {
     notificationTriggered: Boolean(r.notification_triggered ?? r.notificationTriggered),
     phone: r.phone || "",
     region: r.region || "",
+    voiceUrl: r.voice_url || r.voiceUrl || "",
+    voiceDurationSeconds: Number(r.voice_duration_seconds || r.voiceDurationSeconds || 0),
     is_deleted: Boolean(r.is_deleted),
     deleted_at: r.deleted_at || null,
     createdAt: r.created_at || new Date().toISOString(),
@@ -357,6 +359,19 @@ function mapDbCustomerToDTO(
   const balance = c.balance !== undefined && c.balance !== null ? Number(c.balance) : total - advance;
   const photoCount = Math.max(photoNames.length, photoUrls.length, Number(c.photo_count) || 0);
 
+  let voiceNotes: any[] = [];
+  if (c.voice_notes) {
+    if (Array.isArray(c.voice_notes)) {
+      voiceNotes = c.voice_notes;
+    } else if (typeof c.voice_notes === 'string') {
+      try {
+        voiceNotes = JSON.parse(c.voice_notes);
+      } catch (_) { }
+    }
+  } else if (c.voiceNotes && Array.isArray(c.voiceNotes)) {
+    voiceNotes = c.voiceNotes;
+  }
+
   return {
     id: c.id,
     name: c.name || '',
@@ -380,6 +395,7 @@ function mapDbCustomerToDTO(
     orderDate: c.order_date ? new Date(c.order_date).toISOString() : new Date().toISOString(),
     expectedDelivery: c.expected_delivery ? new Date(c.expected_delivery).toISOString() : null,
     frames: parsedFrames,
+    voiceNotes,
     is_deleted: Boolean(c.is_deleted),
     deleted_at: c.deleted_at || null,
     createdAt: c.created_at || new Date().toISOString(),
@@ -1089,7 +1105,7 @@ export const db = {
     },
 
     async findCustomers(filters: CustomerFilters): Promise<PaginatedCustomersResult> {
-            // Handle timeFilter (Today, Yesterday, This Week, Last Week, This Month, Last Month)
+      // Handle timeFilter (Today, Yesterday, This Week, Last Week, This Month, Last Month)
       if (filters.timeFilter && filters.timeFilter !== "all") {
         const now = new Date();
         let start: Date = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -1174,10 +1190,10 @@ export const db = {
             filters.sortBy === 'orderDate'
               ? 'order_date'
               : filters.sortBy === 'total'
-              ? 'total'
-              : filters.sortBy === 'name'
-              ? 'name'
-              : 'created_at';
+                ? 'total'
+                : filters.sortBy === 'name'
+                  ? 'name'
+                  : 'created_at';
           query = query.order(sortCol, { ascending: filters.sortOrder === 'asc' });
           query = query.range(offset, offset + limit - 1);
 
@@ -1381,6 +1397,7 @@ export const db = {
           ...f,
           id: f.id || `frame-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
         })),
+        voiceNotes: customerData.voiceNotes || customerData.voice_notes || [],
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -1412,6 +1429,7 @@ export const db = {
             status: newCustomer.status || 'pending',
             order_date: newCustomer.orderDate ? newCustomer.orderDate.slice(0, 10) : new Date().toISOString().slice(0, 10),
             expected_delivery: newCustomer.expectedDelivery ? newCustomer.expectedDelivery.slice(0, 10) : null,
+            voice_notes: newCustomer.voiceNotes || [],
             created_by: safeCreatedBy,
           };
 
@@ -1478,7 +1496,7 @@ export const db = {
 
       // 2. Also keep in-memory cache synchronized
       store.customers.unshift(newCustomer);
-      db.frameSizes.syncOrdersCount().catch(() => {});
+      db.frameSizes.syncOrdersCount().catch(() => { });
 
       photos.forEach((p, idx) => {
         store.customerPhotos.push({
@@ -1558,6 +1576,10 @@ export const db = {
           if (updates.orderDate !== undefined) dbUpdates.order_date = updates.orderDate.slice(0, 10);
           if (updates.expectedDelivery !== undefined) {
             dbUpdates.expected_delivery = updates.expectedDelivery ? updates.expectedDelivery.slice(0, 10) : null;
+          }
+          if (updates.voiceNotes !== undefined || updates.voice_notes !== undefined) {
+            const vNotes = updates.voiceNotes ?? updates.voice_notes;
+            dbUpdates.voice_notes = Array.isArray(vNotes) ? vNotes : [];
           }
 
           const { error: updateErr } = await sb
@@ -1662,6 +1684,7 @@ export const db = {
         advance,
         balance,
         paymentStatus,
+        voiceNotes: updates.voiceNotes ?? updates.voice_notes ?? current.voiceNotes ?? [],
         status: updates.status || current.status,
         photoCount: photoNames.length,
         photoNames,
@@ -1677,7 +1700,7 @@ export const db = {
       } else {
         store.customers.unshift(updatedDTO);
       }
-      db.frameSizes.syncOrdersCount().catch(() => {});
+      db.frameSizes.syncOrdersCount().catch(() => { });
       invalidateStatsCache();
 
       return updatedDTO;
@@ -1776,7 +1799,7 @@ export const db = {
       }
 
       if (wasDeleted) {
-        db.frameSizes.syncOrdersCount().catch(() => {});
+        db.frameSizes.syncOrdersCount().catch(() => { });
         invalidateStatsCache();
       }
 
@@ -2383,48 +2406,55 @@ export const db = {
       if (isSupabaseConfigured()) {
         try {
           const sb = getSupabase();
-          const { error } = await sb.from("reminders").insert({
-            id: reminder.id,
-            title: reminder.title,
-            customer_name: reminder.customerName,
-            customer_id: reminder.customerId,
-            order_id: reminder.orderId || "",
-            description: reminder.description || "",
-            reminder_date: reminder.reminderDate,
-            reminder_time: reminder.reminderTime,
-            assigned_staff: reminder.assignedStaff || "Unassigned",
-            priority: reminder.priority,
-            status: reminder.status,
-            is_completed: reminder.isCompleted ?? (reminder.status === "completed"),
-            completed_by: reminder.completedBy || "",
-            completed_at: reminder.completedAt || "",
-            notification_triggered: reminder.notificationTriggered ?? false,
-            phone: reminder.phone || "",
-            region: reminder.region || "",
-          });
-          if (error) {
-            logger.warn("Supabase reminders insert note:", error.message);
+            const { error } = await sb.from("reminders").upsert({
+              id: reminder.id,
+              title: reminder.title,
+              customer_name: reminder.customerName,
+              customer_id: reminder.customerId,
+              order_id: reminder.orderId || "",
+              description: reminder.description || "",
+              reminder_date: reminder.reminderDate,
+              reminder_time: reminder.reminderTime,
+              assigned_staff: reminder.assignedStaff || "Unassigned",
+              priority: reminder.priority,
+              status: reminder.status,
+              is_completed: reminder.isCompleted ?? (reminder.status === "completed"),
+              completed_by: reminder.completedBy || "",
+              completed_at: reminder.completedAt || "",
+              notification_triggered: reminder.notificationTriggered ?? false,
+              phone: reminder.phone || "",
+              region: reminder.region || "",
+              voice_url: reminder.voiceUrl || "",
+              voice_duration_seconds: reminder.voiceDurationSeconds || 0,
+            });
+            if(error) {
+              logger.warn("Supabase reminders upsert note:", error.message);
+            }
+          } catch (e) {
+            logger.error("Supabase create reminder exception:", e);
           }
-        } catch (e) {
-          logger.error("Supabase create reminder exception:", e);
         }
-      }
 
-      store.reminders.unshift(reminder);
-      return reminder;
-    },
+        const existingIdx = store.reminders.findIndex((r) => r.id === reminder.id);
+        if (existingIdx !== -1) {
+          store.reminders[existingIdx] = reminder;
+        } else {
+          store.reminders.unshift(reminder);
+        }
+        return reminder;
+      },
 
-    async update(id: string, updates: Partial<ReminderDTO>): Promise<ReminderDTO | null> {
-      const existing = await this.findById(id);
-      if (!existing) return null;
+    async update(id: string, updates: Partial<ReminderDTO>): Promise < ReminderDTO | null > {
+        const existing = await this.findById(id);
+        if(!existing) return null;
 
-      const updated: ReminderDTO = {
-        ...existing,
-        ...updates,
-        updatedAt: new Date().toISOString(),
-      };
+        const updated: ReminderDTO = {
+          ...existing,
+          ...updates,
+          updatedAt: new Date().toISOString(),
+        };
 
-      if (isSupabaseConfigured()) {
+        if(isSupabaseConfigured()) {
         try {
           const sb = getSupabase();
           const patch: any = {
@@ -2446,6 +2476,8 @@ export const db = {
           if (updates.isCompleted !== undefined) patch.is_completed = updates.isCompleted;
           if (updates.phone !== undefined) patch.phone = updates.phone;
           if (updates.region !== undefined) patch.region = updates.region;
+          if (updates.voiceUrl !== undefined) patch.voice_url = updates.voiceUrl;
+          if (updates.voiceDurationSeconds !== undefined) patch.voice_duration_seconds = updates.voiceDurationSeconds;
 
           const { error } = await sb.from("reminders").update(patch).eq("id", id);
           if (error) {
@@ -2696,7 +2728,7 @@ export const db = {
       }
 
       if (wasRestored) {
-        db.frameSizes.syncOrdersCount().catch(() => {});
+        db.frameSizes.syncOrdersCount().catch(() => { });
         invalidateStatsCache();
       }
 
@@ -2785,7 +2817,7 @@ export const db = {
         (p: any) => p.customer_id.toLowerCase() !== cleanId.toLowerCase()
       );
 
-      db.frameSizes.syncOrdersCount().catch(() => {});
+      db.frameSizes.syncOrdersCount().catch(() => { });
       invalidateStatsCache();
       return true;
     },

@@ -15,6 +15,10 @@ export const createReminderSchema = z.object({
   isCompleted: z.boolean().optional(),
   phone: z.string().optional().default(''),
   region: z.string().optional().default(''),
+  voiceUrl: z.string().optional().default(''),
+  voiceDurationSeconds: z.coerce.number().optional().default(0),
+  voice_url: z.string().optional(),
+  voice_duration_seconds: z.coerce.number().optional(),
 });
 
 export const updateReminderSchema = z.object({
@@ -34,6 +38,10 @@ export const updateReminderSchema = z.object({
   notificationTriggered: z.boolean().optional(),
   phone: z.string().optional(),
   region: z.string().optional(),
+  voiceUrl: z.string().optional(),
+  voiceDurationSeconds: z.coerce.number().optional(),
+  voice_url: z.string().optional(),
+  voice_duration_seconds: z.coerce.number().optional(),
 });
 
 export const reminderQuerySchema = z.object({

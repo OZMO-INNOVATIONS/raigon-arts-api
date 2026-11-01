@@ -167,4 +167,31 @@ export class StorageService {
       mimeType: processed.originalWebp.mimeType,
     };
   }
+
+  static async uploadAudio(
+    folder: string,
+    file: Express.Multer.File
+  ): Promise<{
+    fileName: string;
+    fileUrl: string;
+    thumbnailUrl: string;
+    sizeBytes: number;
+    mimeType: string;
+  }> {
+    const ext = path.extname(file.originalname) || '.m4a';
+    const safeBase = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_-]/g, '_') || 'audio';
+    const fileName = `voice_${Date.now()}_${safeBase}${ext}`;
+    const storagePath = `${folder}/audio/${fileName}`;
+    const mimeType = file.mimetype || 'audio/m4a';
+
+    const result = await this.uploadBuffer(storagePath, file.buffer, mimeType);
+
+    return {
+      fileName,
+      fileUrl: result.publicUrl,
+      thumbnailUrl: '',
+      sizeBytes: file.buffer.length,
+      mimeType,
+    };
+  }
 }

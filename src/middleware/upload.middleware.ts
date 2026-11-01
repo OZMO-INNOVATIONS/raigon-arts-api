@@ -16,6 +16,18 @@ const allowedMimes = new Set([
   'image/bmp',
   'image/tiff',
   'application/pdf',
+  'audio/m4a',
+  'audio/mp4',
+  'audio/x-m4a',
+  'audio/mpeg',
+  'audio/mp3',
+  'audio/wav',
+  'audio/x-wav',
+  'audio/wave',
+  'audio/webm',
+  'audio/aac',
+  'audio/ogg',
+  'audio/octet-stream',
 ]);
 
 const allowedExtensions = new Set([
@@ -29,6 +41,12 @@ const allowedExtensions = new Set([
   '.bmp',
   '.tiff',
   '.pdf',
+  '.m4a',
+  '.mp3',
+  '.wav',
+  '.aac',
+  '.ogg',
+  '.webm',
 ]);
 
 const fileFilter: multer.Options['fileFilter'] = (_req, file, cb) => {

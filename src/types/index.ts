@@ -61,6 +61,14 @@ export interface FrameSizeMaster {
   updated_at?: string;
 }
 
+export interface OrderVoiceNote {
+  id: string;
+  url: string;
+  name: string;
+  durationSeconds: number;
+  createdAt: string;
+}
+
 export interface CustomerRow {
   id: string;
   name: string;
@@ -81,6 +89,7 @@ export interface CustomerRow {
   status: OrderStatus;
   order_date: string;
   expected_delivery?: string | null;
+  voice_notes?: any;
   created_by?: string | null;
   created_at: string;
   updated_at: string;
@@ -166,6 +175,7 @@ export interface CustomerResponseDTO {
   orderDate: string;
   expectedDelivery: string | null;
   frames: CustomerFrameDTO[];
+  voiceNotes?: OrderVoiceNote[];
   is_deleted?: boolean;
   deleted_at?: string | null;
   createdAt?: string;
@@ -270,6 +280,8 @@ export interface ReminderRow {
   completed_by?: string;
   completed_at?: string;
   notification_triggered: boolean;
+  voice_url?: string;
+  voice_duration_seconds?: number;
   created_at: string;
   updated_at: string;
 }
@@ -292,6 +304,8 @@ export interface ReminderDTO {
   notificationTriggered?: boolean;
   phone?: string;
   region?: string;
+  voiceUrl?: string;
+  voiceDurationSeconds?: number;
   is_deleted?: boolean;
   deleted_at?: string | null;
   createdAt: string;
